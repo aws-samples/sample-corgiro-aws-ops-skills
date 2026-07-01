@@ -52,7 +52,7 @@ npx skills@latest add aws-samples/sample-corgiro-aws-ops-skills
 | [`/corgiro health-event-analysis`](skills/corgiro/modes/health-event-analysis/) | AWS Health Dashboard analysis across your org or assigned accounts — risk assessment, pattern analysis, HTML report.                                                                                                                |
 | [`/corgiro rds-eol-analysis`](skills/corgiro/modes/rds-eol-analysis/)           | RDS/Aurora end-of-support analysis — risk-prioritized report with upgrade recommendations.                                                                                                                                          |
 | [`/corgiro eks-eol-analysis`](skills/corgiro/modes/eks-eol-analysis/)           | Amazon EKS end-of-support analysis — Kubernetes version risk, upgrade paths, and extended support cost estimates.                                                                                                                   |
-| [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 operational health assessment — instance type currency, Graviton eligibility, EBS optimization, security, CloudWatch utilization, and snapshot coverage.                                                                        |
+| [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 fleet health assessment - instance generation, Graviton eligibility, EBS optimization, security configuration, instance utilization, and snapshot coverage.                                                                        |
 
 ## Install
 

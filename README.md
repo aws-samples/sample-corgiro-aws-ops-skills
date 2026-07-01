@@ -33,13 +33,21 @@ Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/
 npx skills@latest add aws-samples/sample-corgiro-aws-ops-skills
 ```
 
+The CLI will detect your installed AI agents and prompt you to choose where to install.
+
 ### Setup Corgiro
 
-```bash
-# One-time setup (sets up access to your AWS accounts)
-/corgiro setup-corgiro
+Open your agent and run the one-time setup:
 
-# Run a sweep
+```
+/corgiro setup-corgiro
+```
+
+### Run a sweep
+
+Check which accounts are reachable:
+
+```
 /corgiro account-coverage
 ```
 

@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Corgiro - per-account read-only role (CorgiroReadOnlyRole).
+  Deployed to every member account via a service-managed StackSet from the
+  management account. Trusted only by the CorgiroOperator Identity Center
+  permission set in the tooling account, gated by an external ID.
+
+Parameters:
+  ToolingAccountId:
+    Type: String
+    Description: >
+      Account ID of the Corgiro tooling account where CorgiroOperator is
+      provisioned by IAM Identity Center.
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: Must be a 12-digit AWS account ID.
+
+  ExternalId:
+    Type: String
+    Description: >
+      Shared secret required on sts:AssumeRole. Must match the externalId
+      value configured in ~/.corgiro/config.json.
+    MinLength: 8
+    MaxLength: 128
+    NoEcho: true
+
+  PermissionSetNamePrefix:
+    Type: String
+    Description: >
+      The Identity Center permission set name used by Corgiro operators.
+      Identity Center provisions the actual role as
+      AWSReservedSSO_<name>_<hash>, so the trust uses ArnLike with a wildcard.
+    Default: CorgiroOperator
+
+  RoleName:
+    Type: String
+    Description: Name of the per-account role Corgiro will assume.
+    Default: CorgiroReadOnlyRole
+
+  MaxSessionDurationSeconds:
+    Type: Number
+    Description: Maximum STS session duration (seconds). Default 1 hour.
+    Default: 3600
+    MinValue: 900
+    MaxValue: 43200
+
+Resources:
+  CorgiroDataPlaneDenyPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${RoleName}-DataPlaneDeny"
+      Description: >
+        Explicit Deny overrides the ReadOnlyAccess Allow (in IAM, an explicit
+        Deny always wins). Blocks bulk exfiltration of secrets and data records -
+        secret material, SecureString values, S3 objects, DynamoDB items, KMS
+        decryption, EC2 console output/screenshots, Lambda env vars, CloudWatch
+        Logs contents, and API Gateway keys - while preserving the
+        describe/list/get-config calls every Corgiro mode relies on. Mitigates
+        threat T5 (over-permissioned ReadOnlyAccess used to read secrets or
+        customer data). No current mode uses these actions; adding a mode that
+        needs one requires a deliberate StackSet update.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenySensitiveDataPlaneReads
+            Effect: Deny
+            Action:
+              # Secrets Manager - secret material
+              - secretsmanager:GetSecretValue
+              - secretsmanager:BatchGetSecretValue
+              # SSM Parameter Store - SecureString values
+              - ssm:GetParameter
+              - ssm:GetParameters
+              - ssm:GetParametersByPath
+              - ssm:GetParameterHistory
+              # S3 - object contents
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetObjectTorrent
+              # DynamoDB - item / record contents
+              - dynamodb:GetItem
+              - dynamodb:BatchGetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:PartiQLSelect
+              # KMS - decryption of any retrieved ciphertext
+              - kms:Decrypt
+              # EC2 - console output / screenshot can expose boot logs and secrets
+              - ec2:GetConsoleOutput
+              - ec2:GetConsoleScreenshot
+              # Lambda - GetFunction/Config return env vars in plaintext + a code-download URL
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              # CloudWatch Logs - log events frequently contain secrets / PII
+              - logs:GetLogEvents
+              - logs:FilterLogEvents
+              # API Gateway - GET can return API keys
+              - apigateway:GET
+            Resource: "*"
+
+  CorgiroReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      Description: >
+        Read-only role assumed by Corgiro (AWS Cloud Operations Assistant)
+        from the tooling account for cross-account inspection.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCorgiroOperatorFromTooling
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                # Identity Center provisions roles as either:
+                # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<name>_<hash>
+                # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_<name>_<hash>
+                aws:PrincipalArn:
+                  - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                  - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      ManagedPolicyArns:
+        # Broad read baseline. We keep ReadOnlyAccess for low maintenance
+        # (new read-only modes work without redeploying the StackSet) and
+        # layer an explicit Deny (as a customer-managed policy) below to
+        # remove sensitive data-plane reads.
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess"
+        - !Ref CorgiroDataPlaneDenyPolicy
+      Tags:
+        - Key: app
+          Value: corgiro
+        - Key: purpose
+          Value: cross-account-readonly
+        - Key: managed-by
+          Value: corgiro-stackset
+
+Outputs:
+  RoleArn:
+    Description: ARN of the Corgiro read-only role in this member account.
+    Value: !GetAtt CorgiroReadOnlyRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  RoleName:
+    Description: Name of the Corgiro read-only role.
+    Value: !Ref CorgiroReadOnlyRole

@@ -94,14 +94,15 @@ aws <service> <command> --profile corgiro-<accountId> --region <region> --output
 
 ### via = "assume-role" — accessMode: cross-account-role
 
-Assume `CorgiroReadOnlyRole` from the tooling-account session, gated by the external ID. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
+Assume `CorgiroReadOnlyRole` from the tooling-account session, gated by the external ID. The tooling-account session is the `corgiro` base profile written by `setup-corgiro` Option B (Step 5) — invoke it with `--profile corgiro` or `export AWS_PROFILE=corgiro`. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
 
 ```bash
 aws sts assume-role \
   --role-arn arn:aws:iam::<accountId>:role/CorgiroReadOnlyRole \
   --role-session-name corgiro-<operator>-<run_id> \
   --external-id <externalId> \
-  --duration-seconds 3600
+  --duration-seconds 3600 \
+  --profile corgiro
 ```
 
 Export the returned credentials (env vars or a temporary named profile) for subsequent calls in that account.

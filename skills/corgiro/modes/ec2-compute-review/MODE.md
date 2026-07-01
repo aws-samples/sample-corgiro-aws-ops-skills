@@ -1,12 +1,12 @@
 ---
 name: ec2-compute-review
-description: "Comprehensive EC2 operational health assessment across every reachable account — instance type currency, Graviton eligibility, EBS optimization, security configuration, CloudWatch utilization, and snapshot coverage. Use when reviewing EC2 fleet health, EC2 best practices, EC2 security posture, Graviton migration candidates, or EBS optimization opportunities."
+description: "EC2 fleet health assessment across every reachable account - instance generation, Graviton eligibility, EBS optimization, security configuration, instance utilization, and snapshot coverage. Use when reviewing EC2 fleet health, EC2 best practices, EC2 security posture, Graviton migration candidates, or EBS optimization opportunities."
 user-invocable: true
 ---
 
 # EC2 Compute Review
 
-Assess EC2 operational health across every reachable account in the organization. Evaluates instance type currency, rightsizing signals, EBS volume optimization, security group configuration, IMDSv2 enforcement, Graviton eligibility, and snapshot coverage. Produces a prioritized risk report with actionable recommendations and cost savings estimates.
+Assess EC2 fleet health across every reachable account in the organization. Evaluates instance generation, rightsizing signals, EBS volume optimization, security group configuration, IMDSv2 enforcement, Graviton eligibility, and snapshot coverage. Produces a prioritized risk report with actionable recommendations and cost savings estimates.
 
 ## Prerequisites
 

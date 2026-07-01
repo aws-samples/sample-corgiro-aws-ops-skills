@@ -48,6 +48,8 @@ npx skills@latest add aws-samples/sample-corgiro-aws-ops-skills
 | [`/corgiro rds-eol-analysis`](skills/corgiro/modes/rds-eol-analysis/)           | RDS/Aurora end-of-support analysis — risk-prioritized report with upgrade recommendations.                                                                                                                                          |
 | [`/corgiro eks-eol-analysis`](skills/corgiro/modes/eks-eol-analysis/)           | Amazon EKS end-of-support analysis — Kubernetes version risk, upgrade paths, and extended support cost estimates.                                                                                                                   |
 | [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 operational health assessment — instance type currency, Graviton eligibility, EBS optimization, security, CloudWatch utilization, and snapshot coverage.                                                                        |
+| [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |
+| [`/corgiro mode-builder`](skills/corgiro/modes/mode-builder/)                   | Interactive workflow to create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing.                                                                                                  |
 
 ## Install
 
@@ -102,6 +104,13 @@ skills/
         │   ├── MODE.md
         │   └── references/
         │       └── ...
+        ├── bedrock-model-lifecycle/
+        │   └── MODE.md
+        ├── mode-builder/
+        │   ├── MODE.md
+        │   └── references/
+        │       ├── mode-template.md
+        │       └── validation-checklist.md
         └── ...                           ← more modes
 ```
 

@@ -48,7 +48,7 @@ Resources:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName: !Sub "${RoleName}-DataPlaneDeny"
-      Description: >
+      Description: >-
         Explicit Deny overrides the ReadOnlyAccess Allow (in IAM, an explicit
         Deny always wins). Blocks bulk exfiltration of secrets and data records -
         secret material, SecureString values, S3 objects, DynamoDB items, KMS
@@ -102,7 +102,7 @@ Resources:
     Properties:
       RoleName: !Ref RoleName
       MaxSessionDuration: !Ref MaxSessionDurationSeconds
-      Description: >
+      Description: >-
         Read-only role assumed by Corgiro (AWS Cloud Operations Assistant)
         from the tooling account for cross-account inspection.
       AssumeRolePolicyDocument:

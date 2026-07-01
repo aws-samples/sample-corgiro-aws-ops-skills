@@ -19,7 +19,7 @@ Each sweep finds:
 - **AWS Health events** - org-wide risk assessment and pattern analysis
 - **RDS / Aurora end-of-support** - risk-prioritized upgrade recommendations
 - **Amazon EKS end-of-support** - Kubernetes version risk, upgrade paths, extended-support cost
-- **EC2 compute hygiene** - instance currency, Graviton eligibility, EBS optimization, utilization
+- **EC2 compute hygiene** - Assess EC2 fleet health across accounts in the organization. Evaluates instance generation, rightsizing
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
 

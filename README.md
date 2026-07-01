@@ -11,7 +11,7 @@
 
 </div>
 
-Corgiro is an AI agent skill for AWS multi-account cloud operations. One command sweeps your entire AWS Organization, read-only, and returns shareable HTML/Markdown reports.
+Corgiro is an AI agent skill for AWS multi-account cloud operations. One command sweeps your entire AWS Organization, read-only, and returns shareable reports.
 
 Each sweep finds:
 

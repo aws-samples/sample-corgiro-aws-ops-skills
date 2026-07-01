@@ -2,7 +2,12 @@
 
 Provisions org-wide, consistent, read-only coverage by deploying `CorgiroReadOnlyRole` to every member account and operating from a tooling account. This is the heavier path and needs temporary elevated access.
 
-> Unlike Option A, you do **not** log into the `corgiro` SSO session at MODE.md Step 1 — `CorgiroOperator` doesn't exist yet. Steps 0–3 run with **temporary payer (management) access**; you create and log into the `CorgiroOperator` session in Steps 4–6.
+> Unlike Option A, you do **not** log into the `corgiro` SSO session at MODE.md Step 1 (`CorgiroOperator` doesn't exist yet). The setup supports two StackSet deployment modes, chosen in [StackSet Deployment Mode](#stackset-deployment-mode-decide-upfront):
+>
+> - **management** (default): Steps 0-3 run with **temporary payer (management) access**.
+> - **delegated-admin**: the payer bootstrap (Steps 1-2) is assumed already in place; Step 3 runs from a registered StackSets delegated administrator account with `--call-as DELEGATED_ADMIN`, so no payer access is needed for the deploy.
+>
+> Either way, you create and log into the `CorgiroOperator` session in Steps 4-6.
 
 ## Access Required (Temporary Payer Access)
 
@@ -13,6 +18,8 @@ Pick the most-scoped role available:
 1. `AWSOrganizationsFullAccess` + `AWSCloudFormationFullAccess` (recommended)
 2. `AdministratorAccess` in the payer
 3. `OrganizationAccountAccessRole`
+
+> **Delegated-admin mode needs payer access only once, beforehand.** If you deploy the StackSet from a registered delegated administrator account (see [StackSet Deployment Mode](#stackset-deployment-mode-decide-upfront)), the payer is used only to activate trusted access and register the delegated admin. Those are assumed already done in that mode, and the deploy itself runs from the delegated admin account with no payer access.
 
 ## Prerequisites
 
@@ -25,19 +32,58 @@ Pick the most-scoped role available:
 
 ## Parameters (decide upfront)
 
-| Parameter               | Example               | Notes                                                              |
-| ----------------------- | --------------------- | ------------------------------------------------------------------ |
-| `MANAGEMENT_ACCOUNT_ID` | `111111111111`        | Root of the organization                                           |
-| `TOOLING_ACCOUNT_ID`    | `222222222222`        | Where CorgiroOperator is assigned                                  |
-| `ROOT_OU_ID`            | `r-xxxx`              | `aws organizations list-roots --query 'Roots[0].Id'`               |
-| `EXTERNAL_ID`           | `corgiro-<uuid>`      | Generate once; keep in a password manager. Must match config.json. |
-| `PERMISSION_SET_NAME`   | `CorgiroOperator`     | Identity Center permission set                                     |
-| `MEMBER_ROLE_NAME`      | `CorgiroReadOnlyRole` | Matches StackSet template                                          |
-| `STACKSET_REGION`       | `us-east-1`           | StackSet admin region                                              |
+| Parameter                    | Example               | Notes                                                                |
+| ---------------------------- | --------------------- | -------------------------------------------------------------------- |
+| `MANAGEMENT_ACCOUNT_ID`      | `111111111111`        | Root of the organization                                             |
+| `TOOLING_ACCOUNT_ID`         | `222222222222`        | Where CorgiroOperator is assigned                                    |
+| `ROOT_OU_ID`                 | `r-xxxx`              | `aws organizations list-roots --query 'Roots[0].Id'`                 |
+| `EXTERNAL_ID`                | `corgiro-<uuid>`      | Generate once; keep in a password manager. Must match config.json.   |
+| `PERMISSION_SET_NAME`        | `CorgiroOperator`     | Identity Center permission set                                       |
+| `MEMBER_ROLE_NAME`           | `CorgiroReadOnlyRole` | Matches StackSet template                                            |
+| `STACKSET_REGION`            | `us-east-1`           | StackSet admin region                                                |
+| `STACKSET_ADMIN_MODE`        | `management`          | `management` or `delegated-admin` - see StackSet Deployment Mode     |
+| `DELEGATED_ADMIN_ACCOUNT_ID` | `333333333333`        | Only for `delegated-admin` mode; the account you run the deploy from |
+
+## StackSet Deployment Mode (decide upfront)
+
+`CorgiroReadOnlyRole` can be created from **either** the management account **or** a registered StackSets delegated administrator account. **Ask the operator which one - do not assume.**
+
+| Mode                 | `STACKSET_ADMIN_MODE` | Deploy runs from             | Trusted access + delegated admin registration    | `--call-as`       |
+| -------------------- | --------------------- | ---------------------------- | ------------------------------------------------ | ----------------- |
+| Management (default) | `management`          | Payer (management) account   | Done in this run (Steps 1-2)                     | `SELF` (implicit) |
+| Delegated admin      | `delegated-admin`     | `DELEGATED_ADMIN_ACCOUNT_ID` | **Assumed already in place** - Steps 1-2 skipped | `DELEGATED_ADMIN` |
+
+The deployer is independent of the role's trust. The template's `ToolingAccountId` parameter controls who can assume `CorgiroReadOnlyRole` at runtime; whoever _deploys_ the StackSet is separate. So `DELEGATED_ADMIN_ACCOUNT_ID` may be the tooling account or a dedicated CICD/tooling account - it does not have to equal `TOOLING_ACCOUNT_ID`.
+
+### If the operator chooses `delegated-admin`
+
+1. This variant **assumes** `aws cloudformation activate-organizations-access` and `aws organizations register-delegated-administrator --service-principal member.org.stacksets.cloudformation.amazonaws.com` were already run from the payer. **Skip Steps 1 and 2.**
+2. Set `DELEGATED_ADMIN_ACCOUNT_ID` and sign in to that account.
+3. **Validate before deploying (hard gate - stop on failure):**
+
+   ```bash
+   # a. Confirm you are signed in to the intended account
+   aws sts get-caller-identity --query Account --output text
+
+   # b. List registered StackSets delegated administrators
+   aws organizations list-delegated-administrators \
+     --service-principal member.org.stacksets.cloudformation.amazonaws.com \
+     --query 'DelegatedAdministrators[].Id' --output text
+   ```
+
+   The caller account from (a) must equal `DELEGATED_ADMIN_ACCOUNT_ID`, **and** `DELEGATED_ADMIN_ACCOUNT_ID` must appear in the list from (b). **Throw an error and stop before Step 3 if either is false** - including when (b) is denied, since a member account that is not a delegated admin cannot call this API.
+
+   Error to surface:
+
+   > `DELEGATED_ADMIN_ACCOUNT_ID (<id>) is not a registered StackSets delegated administrator. From the payer, run: aws cloudformation activate-organizations-access, then aws organizations register-delegated-administrator --service-principal member.org.stacksets.cloudformation.amazonaws.com --account-id <id>. Then re-run this setup.`
+
+4. Proceed to Step 3 and use the **delegated-admin** command variant (`--call-as DELEGATED_ADMIN`).
+
+> Scope: this variant only moves the `CorgiroReadOnlyRole` StackSet deploy off the payer. Enabling the other org-wide services in Step 0.5 (Health, Config, Security Hub, etc.) still requires payer access and is unaffected by this choice.
 
 ## Step 0: Prerequisite Check
 
-Caller must be in the management account. Organizations reachable. Tooling account is a member. Identity Center instance exists.
+Caller must be signed in to the account that will create the StackSet - the **management account** in `management` mode, or `DELEGATED_ADMIN_ACCOUNT_ID` in `delegated-admin` mode. Organizations reachable. Tooling account is a member. Identity Center instance exists.
 
 ## Step 0.5: Assess Existing State
 
@@ -56,6 +102,8 @@ Check which service principals already have trusted access and delegated admin. 
 
 ## Step 1: Enable Trusted Access
 
+> **`delegated-admin` mode: skip this step.** Trusted access is assumed already active. Run this only in `management` mode (from the payer).
+
 For each missing service principal:
 
 ```bash
@@ -71,6 +119,8 @@ aws organizations enable-aws-service-access \
 
 ## Step 2: Register Delegated Admin
 
+> **`delegated-admin` mode: skip this step.** The delegated admin registration is assumed already in place and was verified in [StackSet Deployment Mode](#stackset-deployment-mode-decide-upfront). Run this only in `management` mode (from the payer).
+
 For each service that needs delegated admin on the tooling account:
 
 ```bash
@@ -81,7 +131,9 @@ aws organizations register-delegated-administrator \
 
 ## Step 3: Deploy CorgiroReadOnlyRole StackSet
 
-> ⚠️ Mutating step — confirm with the operator before running.
+> ⚠️ Mutating step - confirm with the operator before running.
+
+**`management` mode** - run from the payer:
 
 ```bash
 aws cloudformation create-stack-set \
@@ -99,6 +151,29 @@ aws cloudformation create-stack-instances \
   --regions us-east-1 \
   --region $STACKSET_REGION
 ```
+
+**`delegated-admin` mode** - run from `DELEGATED_ADMIN_ACCOUNT_ID`, only after the [StackSet Deployment Mode](#stackset-deployment-mode-decide-upfront) validation passed. Identical to above, but add `--call-as DELEGATED_ADMIN` to every StackSet call:
+
+```bash
+aws cloudformation create-stack-set \
+  --stack-set-name CorgiroReadOnlyRole \
+  --template-body file://assets/corgiro-readonly-role.yaml \
+  --parameters ParameterKey=ToolingAccountId,ParameterValue=$TOOLING_ACCOUNT_ID \
+               ParameterKey=ExternalId,ParameterValue=$EXTERNAL_ID \
+  --permission-model SERVICE_MANAGED \
+  --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false \
+  --call-as DELEGATED_ADMIN \
+  --region $STACKSET_REGION
+
+aws cloudformation create-stack-instances \
+  --stack-set-name CorgiroReadOnlyRole \
+  --deployment-targets OrganizationalUnitIds=$ROOT_OU_ID \
+  --regions us-east-1 \
+  --call-as DELEGATED_ADMIN \
+  --region $STACKSET_REGION
+```
+
+> The stack set resource lives in the management account even when created by a delegated admin. Any later list/describe/update/delete from the delegated admin account must also pass `--call-as DELEGATED_ADMIN`.
 
 Wait for `SUCCEEDED` status.
 

@@ -23,6 +23,7 @@ Single namespace command for the Corgiro AWS Cloud Operations skill collection. 
 | `eks-eol-analysis`      | `/corgiro eks-eol-analysis`      | Identify Amazon EKS clusters on Kubernetes versions approaching or past end of standard support across all accounts — prioritized risk report with upgrade paths and extended support cost estimates.        |
 | `ec2-compute-review`    | `/corgiro ec2-compute-review`    | Comprehensive EC2 operational health assessment across all accounts — instance type currency, Graviton eligibility, EBS optimization, security configuration, CloudWatch utilization, and snapshot coverage. |
 | `bedrock-model-lifecycle` | `/corgiro bedrock-model-lifecycle` | Identify Bedrock foundation models that are deprecated or approaching legacy/extended-support across all accounts — shows which accounts and inference profiles are still using at-risk models.                                  |
+| `ri-sp-coverage-analysis` | `/corgiro ri-sp-coverage-analysis` | Analyze Reserved Instance and Savings Plans coverage across the AWS Organization from the payer/management account — spend decomposition, per-service coverage and utilization, purchase recommendations (CE + Cost Optimization Hub), and expiring commitments in the next 90 days. |
 | `mode-builder`          | `/corgiro mode-builder`          | Interactive workflow that helps you create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing. Use when adding a new /corgiro mode or building a custom multi-account inspection. |
 
 ## Routing logic

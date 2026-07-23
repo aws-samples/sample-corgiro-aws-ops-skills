@@ -63,6 +63,7 @@ Check which accounts are reachable:
 | [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 operational health assessment — instance type currency, Graviton eligibility, EBS optimization, security, CloudWatch utilization, and snapshot coverage.                                                                        |
 | [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |
 | [`/corgiro ri-sp-coverage-analysis`](skills/corgiro/modes/ri-sp-coverage-analysis/) | Reserved Instance and Savings Plans coverage analysis — spend decomposition, coverage, utilization, purchase recommendations, and expiring commitments across the org (payer-scoped).                                             |
+| [`/corgiro eks-ingress-migration`](skills/corgiro/modes/eks-ingress-migration/)     | Org-wide EKS ingress migration triage — discovers clusters across accounts/regions, detects EKS Auto Mode, and classifies each cluster's ingress exposure from AWS load balancer tags (NGINX front vs AWS Load Balancer Controller ALB vs Auto Mode managed) to prioritize migration off NGINX and point each at the right path (Gateway API + lbc-migrate toolkit, ALB/LBC Ingress, or AWS Transform/ATX).                       |
 | [`/corgiro mode-builder`](skills/corgiro/modes/mode-builder/)                   | Interactive workflow to create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing.                                                                                                  |
 
 ## Install
@@ -119,6 +120,8 @@ skills/
         │   └── references/
         │       └── ...
         ├── bedrock-model-lifecycle/
+        │   └── MODE.md
+        ├── eks-ingress-migration/
         │   └── MODE.md
         ├── mode-builder/
         │   ├── MODE.md

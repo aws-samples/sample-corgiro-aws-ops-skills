@@ -21,7 +21,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 | Parameter        | Default         | Description                                                                 |
 | ---------------- | --------------- | --------------------------------------------------------------------------- |
-| `regions`        | `auto`          | Region list, or `auto` to enumerate each account's enabled regions          |
+| `regions`        | `auto`          | Region list, or `auto` to discover from Cost Explorer spend data    |
 | `account_filter` | _(from config)_ | Include/exclude lists                                                        |
 | `max_parallel`   | `4`             | Concurrent accounts (clamped to 10 max per `credential-resolution.md`)      |
 | `output_format`  | `both`          | `markdown`, `html`, or `both`                                               |
@@ -34,7 +34,27 @@ Run the pre-flight security checks in [`../../references/credential-resolution.m
 
 ### Step 2: Determine scope
 
-Build the account list from `~/.corgiro/state/roster.json` and apply `account_filter`. Resolve the region set: if `regions=auto`, enumerate each account's enabled regions with `aws ec2 describe-regions --query 'Regions[].RegionName' --output text`; otherwise use the supplied list. EKS and Elastic Load Balancing are both regional, so every discovery call is per account + per region.
+Build the account list from `~/.corgiro/state/roster.json` and apply `account_filter`.
+
+If `regions = auto`, use Cost Explorer to find account/region combos with EKS spend in the last 90 days. This avoids probing regions with no clusters — both EKS and Elastic Load Balancing are regional, so skipping empty regions saves significant API calls on large orgs.
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<90-days-ago>,End=<today> \
+  --granularity MONTHLY \
+  --metrics "UnblendedCost" \
+  --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Kubernetes Service"]}}' \
+  --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
+  --region us-east-1 --output json
+  # cross-account-role: run with the tooling/management session (local creds)
+  # identity-center-direct: add --profile corgiro-<payerAccountId>
+```
+
+Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.
+
+> **Payer-level caveat:** Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account — `aws eks list-clusters` simply returns empty where there's nothing.
+
+If `regions` is an explicit list, use it directly without CE discovery.
 
 ### Step 3: Discover EKS clusters (per account + region)
 

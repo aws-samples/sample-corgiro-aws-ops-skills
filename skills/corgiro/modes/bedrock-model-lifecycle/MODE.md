@@ -78,32 +78,15 @@ For each reachable account + each user-specified region (up to `max_parallel` co
 
 1. Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) — dispatch on the account's `via`.
 
-2. **Query CloudWatch for invocations of at-risk models:**
+2. **Query CloudWatch for invocations of at-risk models** — one batched `get-metric-data` call per account/region (matching the `ec2-compute-review` pattern), instead of one call per model and metric:
 
-   For each at-risk `modelId`:
+   Build a query file containing, for each at-risk `modelId`, two `MetricDataQueries` against namespace `AWS/Bedrock` with dimension `ModelId=<modelId>` (Period=86400, Stat=Sum): one for `Invocations`, one for `LegacyModelInvocations`. Up to 500 queries fit in a single call (~250 models); split into multiple calls only above that.
+
    ```bash
-   aws cloudwatch get-metric-statistics \
-     --namespace AWS/Bedrock \
-     --metric-name Invocations \
-     --dimensions Name=ModelId,Value=<modelId> \
+   aws cloudwatch get-metric-data \
+     --metric-data-queries file:///tmp/corgiro-bedrock-metrics.json \
      --start-time <now - lookback_days> \
      --end-time <now> \
-     --period 86400 \
-     --statistics Sum \
-     --region <region> \
-     --output json
-   ```
-
-   Also query the dedicated legacy metric:
-   ```bash
-   aws cloudwatch get-metric-statistics \
-     --namespace AWS/Bedrock \
-     --metric-name LegacyModelInvocations \
-     --dimensions Name=ModelId,Value=<modelId> \
-     --start-time <now - lookback_days> \
-     --end-time <now> \
-     --period 86400 \
-     --statistics Sum \
      --region <region> \
      --output json
    ```
@@ -129,7 +112,7 @@ For each reachable account + each user-specified region (up to `max_parallel` co
 Skip accounts that fail credential resolution; record them and continue.
 
 **Sources:**
-- [CloudWatch get-metric-statistics](https://docs.aws.amazon.com/cli/latest/reference/cloudwatch/get-metric-statistics.html)
+- [CloudWatch get-metric-data](https://docs.aws.amazon.com/cli/latest/reference/cloudwatch/get-metric-data.html)
 - [Bedrock runtime CloudWatch metrics](https://docs.aws.amazon.com/bedrock/latest/userguide/monitoring-runtime-metrics.html) — confirms `ModelId` dimension and `Invocations` / `LegacyModelInvocations` metrics
 - [Bedrock list-inference-profiles](https://docs.aws.amazon.com/cli/latest/reference/bedrock/list-inference-profiles.html)
 - [Bedrock get-model-invocation-logging-configuration](https://docs.aws.amazon.com/cli/latest/reference/bedrock/get-model-invocation-logging-configuration.html)
@@ -168,7 +151,7 @@ Write `Bedrock-Model-Lifecycle-<DATE>.md` and/or `.html` per `output_format`.
 
 ## Safety
 
-- Read-only: only describe/list/get calls (`list-foundation-models`, `get-metric-statistics`, `list-inference-profiles`, `get-model-invocation-logging-configuration`).
+- Read-only: only describe/list/get calls (`list-foundation-models`, `get-metric-data`, `list-inference-profiles`, `get-model-invocation-logging-configuration`).
 - Never print access keys, session tokens, or the external ID.
 - No mutating actions in this mode.
 

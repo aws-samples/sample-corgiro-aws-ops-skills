@@ -126,7 +126,7 @@ Write `RI-SP-Coverage-<DATE>.md` and/or `.html` per `output_format`, then `open`
 ## Output
 
 ```
-./ri-sp-coverage-analysis-<run_id>/
+./<run_id>/
 ├── scope.json                                 ← payer id, params, resolved lookback window
 ├── spend-decomposition.json                   ← step 2: service × purchase type + USAGE_TYPE drill-down
 ├── coverage.json                              ← step 3: SP + per-service RI coverage, RI inventory, region gaps

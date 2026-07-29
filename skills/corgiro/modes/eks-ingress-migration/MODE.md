@@ -149,7 +149,7 @@ State what was **not** covered: no Kubernetes API reads; NGINX presence is infer
 ## Output
 
 ```
-./eks-ingress-migration-<run_id>/
+./<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/<region>/clusters.json
 ├── per-account/<account_id>/<region>/load-balancers.json

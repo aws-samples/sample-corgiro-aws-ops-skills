@@ -66,7 +66,7 @@ From `model-catalogue.json`, flag models matching any of these criteria:
 | 🔴 Critical | `status = LEGACY` AND `endOfLifeTime` is within `horizon_days` or already past | `badge--red` |
 | 🟠 High | `status = LEGACY` AND `publicExtendedAccessTime` is within `horizon_days` or already past (extended-support pricing active/imminent) | `badge--orange` |
 | 🟡 Medium | `status = ACTIVE` but `legacyTime` is within `horizon_days` (approaching legacy) | `badge--amber` |
-| 🟢 Info | `status = LEGACY` but `endOfLifeTime` is far out (>60 days) — deprecated but not urgent | `badge--green` |
+| ⚪ Info | `status = LEGACY` but `endOfLifeTime` is far out (>60 days) — deprecated but not urgent | `badge--zinc` |
 
 If no models match any risk tier, report "all clear" and stop.
 

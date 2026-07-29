@@ -60,7 +60,7 @@ Match each cluster's Kubernetes minor version against the scraped EOL dates:
 | 🔴 Critical | Already past end of standard support (in extended support, or fully out of support) |
 | 🟠 High     | Standard support ends within 6 months                                               |
 | 🟡 Medium   | Standard support ends within 12 months                                              |
-| 🟢 Low      | 12+ months of standard support remaining                                            |
+| 🔵 Low      | 12+ months of standard support remaining                                            |
 
 If a cluster's version is missing from the scraped data, mark it 🔴 Critical with "EOL date unknown — manual verification required." Do not skip it.
 
@@ -70,7 +70,7 @@ For clusters past or approaching end of standard support, estimate extended supp
 
 ### Step 7: Generate Report
 
-Render per the shared [`../../references/report-format.md`](../../references/report-format.md) — self-contained HTML + Markdown, Corgiro branding, KPI cards, tables, badges, footer. Risk tiers → badges: 🔴 Critical `badge--red`, 🟠 High `badge--orange`, 🟡 Medium `badge--amber`, 🟢 Low `badge--green`. Write `EKS-EOL-Analysis-<DATE>.md` and/or `.html` (`output_format`):
+Render per the shared [`../../references/report-format.md`](../../references/report-format.md) — self-contained HTML + Markdown, Corgiro branding, KPI cards, tables, badges, footer. Risk tiers → badges: 🔴 Critical `badge--red`, 🟠 High `badge--orange`, 🟡 Medium `badge--amber`, 🔵 Low `badge--blue`. Write `EKS-EOL-Analysis-<DATE>.md` and/or `.html` (`output_format`):
 
 1. Executive Summary — total clusters, risk breakdown (KPI cards)
 2. Critical findings (past EOL) with upgrade paths

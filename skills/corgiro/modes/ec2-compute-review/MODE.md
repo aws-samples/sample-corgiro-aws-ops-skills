@@ -179,7 +179,7 @@ Aggregate all per-account data into `aggregated.json`. Flag each instance:
 | Critical (`badge--red`) | Any: PREVIOUS_GEN_INSTANCE, IMDSV1_ENABLED, SSH_OPEN_TO_WORLD, RDP_OPEN_TO_WORLD, ALL_PORTS_OPEN, CPU_SATURATED, STATUS_CHECK_FAILURES, UNENCRYPTED_EBS                                                      |
 | High (`badge--orange`)  | Any: CPU_IDLE (running), STOPPED_WITH_VOLUMES, GP2_VOLUME_LARGE, NO_SNAPSHOT, EBS_BURST_DEPLETED, NO_IAM_ROLE, VERY_STALE_SNAPSHOT                                                                           |
 | Medium (`badge--amber`) | Any: GRAVITON_CANDIDATE, CPU_UNDERUTILIZED, DETAILED_MONITORING_OFF, GP2_VOLUME, IO1_VOLUME, STALE_SNAPSHOT, EBS_NOT_OPTIMIZED, PUBLIC_IP, NETWORK_IDLE, EBS_QUEUE_HIGH, DEDICATED_TENANCY, STOPPED_INSTANCE |
-| Low (`badge--green`)    | No flags                                                                                                                                                                                                     |
+| OK (`badge--green`)     | No flags                                                                                                                                                                                                     |
 
 ### Step 7: Cost Savings Estimates
 
@@ -201,7 +201,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 
 Report sections:
 
-1. **Executive Summary** -- KPI cards: total instances (running/stopped), health breakdown (Critical/High/Medium/Low), estimated monthly savings
+1. **Executive Summary** -- KPI cards: total instances (running/stopped), health breakdown (Critical/High/Medium/OK), estimated monthly savings
 2. **Critical Findings** -- instances with red health flags, grouped by finding type
 3. **Cost Optimization** -- Graviton candidates, gp2-to-gp3, stopped instance waste
 4. **Security Findings** -- open security groups, IMDSv1, unencrypted EBS, missing IAM roles

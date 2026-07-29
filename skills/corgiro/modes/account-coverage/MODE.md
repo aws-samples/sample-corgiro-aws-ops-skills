@@ -46,10 +46,7 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 
 ### Step 2: Probe Each Account
 
-Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and probe with `aws sts get-caller-identity`. Categorize using the shared reachability vocabulary:
-
-- **identity-center-direct**: `reachable`, `auth_expired`, `not_in_scope`
-- **cross-account-role**: `reachable`, `role_missing`, `trust_mismatch`, `suspended`, `management`
+Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and probe with `aws sts get-caller-identity`. Categorize each account using the shared reachability vocabulary — the category definitions and their per-`via` applicability live in that reference's "Reachability categories" table (do not restate them here).
 
 Run up to `max_parallel` probes; back off on throttling.
 

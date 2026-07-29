@@ -54,7 +54,7 @@ Batch up to 10 ARNs from the same account:
 ```bash
 aws health describe-event-details \
   --region us-east-1 \
-  --profile corgiro-<accountId> \
+  --profile <profilePrefix><accountId> \
   --event-arns "arn:...event1" "arn:...event2" \
   --output json > details/<accountId>_batch_001_details.json
 ```
@@ -64,7 +64,7 @@ aws health describe-event-details \
 ```bash
 aws health describe-affected-entities \
   --region us-east-1 \
-  --profile corgiro-<accountId> \
+  --profile <profilePrefix><accountId> \
   --filter '{"eventArns": ["arn:...event1"]}' \
   --output json > details/<event_key>_<accountId>_affected_entities.json
 ```

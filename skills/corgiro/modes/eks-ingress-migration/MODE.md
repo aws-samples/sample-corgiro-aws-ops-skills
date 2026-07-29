@@ -12,7 +12,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session (`aws sso login --sso-session corgiro`).
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session (`aws sso login --sso-session <sessionName>`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale) — this mode reads `~/.corgiro/state/roster.json`.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (per-account credential dispatch + pre-flight security checks) and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md) (defaults + AssumeRole pattern).
 - Reports render per [`../../references/report-format.md`](../../references/report-format.md).
@@ -30,7 +30,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ### Step 1: Prerequisite check
 
-Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (disk-encryption, `~/.corgiro/` permissions, SSO freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the SSO session is valid. Read `accessMode`.
+Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (`~/.corgiro/` permissions, SSO freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the SSO session is valid. Read `accessMode`.
 
 ### Step 2: Determine scope
 
@@ -47,12 +47,12 @@ aws ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
   --region us-east-1 --output json
   # cross-account-role: run with the tooling/management session (local creds)
-  # identity-center-direct: add --profile corgiro-<payerAccountId>
+  # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
 Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.
 
-> **Payer-level caveat:** Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account — `aws eks list-clusters` simply returns empty where there's nothing.
+> **Payer-level caveat:** Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing the shared `fallbackRegions` set (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)) per reachable account — `aws eks list-clusters` simply returns empty where there's nothing.
 
 If `regions` is an explicit list, use it directly without CE discovery.
 
@@ -149,7 +149,7 @@ State what was **not** covered: no Kubernetes API reads; NGINX presence is infer
 ## Output
 
 ```
-./eks-ingress-migration-<run_id>/
+./<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/<region>/clusters.json
 ├── per-account/<account_id>/<region>/load-balancers.json

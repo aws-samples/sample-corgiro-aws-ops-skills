@@ -14,7 +14,7 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 
 ## Prerequisites
 
-- Valid SSO session: `aws sso login --sso-session corgiro`
+- Valid SSO session: `aws sso login --sso-session <sessionName>` (default `corgiro`)
 - `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not)
 - For `cross-account-role`: caller is in the tooling account
 
@@ -24,7 +24,6 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 | ---------------- | --------------- | ------------------------------------------- |
 | `max_parallel`   | `4`             | Concurrent probes                           |
 | `account_filter` | _(from config)_ | Include/exclude lists                       |
-| `refresh`        | `false`         | Force fresh pull regardless of snapshot age |
 | `output_format`  | `both`          | `markdown`, `html`, or `both`               |
 
 ## Workflow
@@ -46,10 +45,7 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 
 ### Step 2: Probe Each Account
 
-Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and probe with `aws sts get-caller-identity`. Categorize using the shared reachability vocabulary:
-
-- **identity-center-direct**: `reachable`, `auth_expired`, `not_in_scope`
-- **cross-account-role**: `reachable`, `role_missing`, `trust_mismatch`, `suspended`, `management`
+Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and probe with `aws sts get-caller-identity`. Categorize each account using the shared reachability vocabulary — the category definitions and their per-`via` applicability live in that reference's "Reachability categories" table (do not restate them here).
 
 Run up to `max_parallel` probes; back off on throttling.
 
@@ -74,16 +70,16 @@ Reachability → badges: reachable `badge--green`; `auth_expired` / `role_missin
 Update snapshots:
 
 - `~/.corgiro/state/coverage.json` — reachability result (both modes)
-- `~/.corgiro/state/roster.json`:
-  - **cross-account-role**: authoritative — write the discovered org accounts (each entry `via: "assume-role"`)
-  - **identity-center-direct**: owned by `setup-corgiro` — refresh reachability flags only; do not add/remove accounts (re-run setup to change scope)
+- `~/.corgiro/state/roster.json` — entries follow the [Roster Entry Schema](../../references/credential-resolution.md#roster-entry-schema-authoritative):
+  - **cross-account-role**: rebuild scope from the discovered org accounts (each entry `via: "assume-role"`)
+  - **identity-center-direct**: scope owned by `setup-corgiro` — refresh the reachability fields (`reachable`, `lastProbedAt`) only; do not add/remove accounts (re-run setup to change scope)
 
 ## Output
 
 ```
 ./<run_id>/
 ├── scope.json
-├── accounts.json
+├── accounts.json   (cross-account-role only — org pull)
 ├── coverage.json
 ├── diff.json
 ├── Coverage-Report-<DATE>.md

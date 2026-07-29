@@ -30,7 +30,7 @@ For every `aws` command in the mode:
 ## 4. Link Integrity
 
 - [ ] Links from `MODE.md` use `../../references/<name>.md`
-- [ ] Links from `references/step-*.md` use `../../../references/<name>.md`
+- [ ] Links from mode-local `references/*.md` use `../../../references/<name>.md`
 - [ ] All linked files exist
 
 ## 5. Leak Scan
@@ -54,3 +54,4 @@ Also reject:
 - [ ] Report output → references `report-format.md`
 - [ ] EOL/lifecycle → references `aws-version-lifecycle.md` (if applicable)
 - [ ] None of these are restated/duplicated in the mode
+- [ ] Shared vocabulary is **linked, never restated** — reachability categories, the Roster Entry Schema, badge/risk-tier mapping, and defaults (`fallbackRegions`, `maxParallel`, …) are defined only in the shared references; a mode may name the categories/tiers it uses, but the definitions live in the shared reference

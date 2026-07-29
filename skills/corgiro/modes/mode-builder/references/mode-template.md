@@ -60,7 +60,7 @@ For each reachable account + region (up to `max_parallel` concurrently):
 | 🔴 Critical | <...> |
 | 🟠 High | <...> |
 | 🟡 Medium | <...> |
-| 🟢 Low | <...> |
+| 🔵 Low | <...> |
 
 ### Step 5: Generate report
 

@@ -13,7 +13,7 @@ This mode adapts to the `accessMode` in `~/.corgiro/config.json`:
 | accessMode               | How events are collected                                                                                                                     |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cross-account-role`     | **Organizational Health API** (`*-for-organization`) from the management / delegated-admin account — one set of calls covers the whole org   |
-| `identity-center-direct` | **Per-account Health API** (`describe-events`, etc.) — fan out across the roster using `corgiro-<accountId>` profiles, one account at a time |
+| `identity-center-direct` | **Per-account Health API** (`describe-events`, etc.) — fan out across the roster using `<profilePrefix><accountId>` profiles, one account at a time |
 
 > The AWS Health API requires a **Business, Enterprise On-Ramp, or Enterprise Support** plan. In org mode the management account must have it; in per-account mode each account must have it, or that account is skipped (`SubscriptionRequiredException`) and listed in the report.
 
@@ -55,31 +55,31 @@ Execute steps sequentially. Read the corresponding reference file before each st
 
 ### Step 1: Prerequisite Check
 
-Read [references/step-0-prerequisites.md](references/step-0-prerequisites.md).
+Read [references/prerequisites.md](references/prerequisites.md).
 
 Read `accessMode` from config, then validate the credentials/permissions for that mode. Fail fast with clear error messages.
 
 ### Step 2: Collect Input & Discover Accounts
 
-Read [references/step-1-input.md](references/step-1-input.md).
+Read [references/input.md](references/input.md).
 
 Prompt for parameters, persist to `scope.json` (including `access_mode`). Build the account list: org list for `cross-account-role`, roster for `identity-center-direct`.
 
 ### Step 3: Fetch Health Events
 
-Read [references/step-2-fetch-events.md](references/step-2-fetch-events.md).
+Read [references/fetch-events.md](references/fetch-events.md).
 
 Org mode: `describe-events-for-organization`. Per-account mode: fan out `describe-events` per account (tag each event with its source account; skip unsupported accounts). Handle pagination. Build the event index.
 
 ### Step 4: Fetch Details & Affected Accounts
 
-Read [references/step-3-fetch-details.md](references/step-3-fetch-details.md).
+Read [references/fetch-details.md](references/fetch-details.md).
 
 Org mode: affected accounts + org event details. Per-account mode: the affected account is the queried account — fetch single-account event details and (optionally) affected entities.
 
 ### Step 5: Analyze & Report
 
-Read [references/step-4-analyze-report.md](references/step-4-analyze-report.md) and the shared [`../../references/report-format.md`](../../references/report-format.md).
+Read [references/analyze-report.md](references/analyze-report.md) and the shared [`../../references/report-format.md`](../../references/report-format.md).
 
 Aggregate findings, apply risk scoring, detect patterns, then render the report per the shared format (self-contained HTML + Markdown, Corgiro branding). Note any accounts skipped for lack of a supported Support plan.
 

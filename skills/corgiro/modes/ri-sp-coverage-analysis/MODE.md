@@ -40,7 +40,7 @@ Execute steps sequentially. Read the corresponding reference file before each st
 
 ### Step 1: Prerequisite check and payer resolution
 
-Read [references/step-1-spend-decomposition.md](references/step-1-spend-decomposition.md).
+Read [references/spend-decomposition.md](references/spend-decomposition.md).
 
 Validate config and SSO session. Resolve `payer_account_id`:
 
@@ -52,7 +52,7 @@ Persist `scope.json` with the resolved payer id, lookback window, and parameter 
 
 ### Step 2: Spend decomposition by purchase type
 
-Read [references/step-1-spend-decomposition.md](references/step-1-spend-decomposition.md).
+Read [references/spend-decomposition.md](references/spend-decomposition.md).
 
 Call `aws ce get-cost-and-usage` with a monthly grouping by SERVICE and PURCHASE_TYPE. Aggregate per service: total spend, on-demand spend, monthly-average on-demand.
 
@@ -64,7 +64,7 @@ Save `spend-decomposition.json`.
 
 ### Step 3: Coverage analysis
 
-Read [references/step-2-coverage-analysis.md](references/step-2-coverage-analysis.md).
+Read [references/coverage-analysis.md](references/coverage-analysis.md).
 
 Fire in parallel from the payer (coverage uses a fixed 30-day window regardless of `lookback_months` — coverage is a point-in-time metric and longer windows dilute the signal):
 
@@ -78,7 +78,7 @@ Save `coverage.json`.
 
 ### Step 4: Utilization check (waste detection)
 
-Read [references/step-3-utilization-check.md](references/step-3-utilization-check.md).
+Read [references/utilization-check.md](references/utilization-check.md).
 
 Fire in parallel:
 
@@ -89,7 +89,7 @@ Save `utilization.json`. Waste amount = `UnusedCommitment` for SPs, `UnusedHours
 
 ### Step 5: Purchase recommendations
 
-Read [references/step-4-purchase-recommendations.md](references/step-4-purchase-recommendations.md).
+Read [references/purchase-recommendations.md](references/purchase-recommendations.md).
 
 For each SP type in `sp_types`, call `aws ce get-savings-plans-purchase-recommendation` with `term-in-years`, `payment-option`, and `lookback-period-in-days=SIXTY_DAYS`. Optionally cross-reference with `aws cost-optimization-hub list-recommendation-summaries` and `list-recommendations` — COH factors in negotiated discounts, CE does not, so divergence is expected and worth noting.
 
@@ -99,7 +99,7 @@ Save `recommendations.json`.
 
 ### Step 6: Expiring commitments
 
-Read [references/step-5-expiring-commitments.md](references/step-5-expiring-commitments.md).
+Read [references/expiring-commitments.md](references/expiring-commitments.md).
 
 - SPs: `aws savingsplans describe-savings-plans --states active` — parse `Start` and `End`.
 - RIs: reuse the `EndDateTime` field from the utilization response in step 4 (do not re-query).
@@ -110,7 +110,7 @@ Save `expiring.json`.
 
 ### Step 7: Generate report
 
-Read [references/step-6-report.md](references/step-6-report.md) and the shared [`../../references/report-format.md`](../../references/report-format.md).
+Read [references/report.md](references/report.md) and the shared [`../../references/report-format.md`](../../references/report-format.md).
 
 Aggregate the five persisted files into `aggregated.json`, then render per the shared report format: self-contained HTML plus a Markdown sibling, Corgiro branding, KPI cards, tables, and the badge vocabulary. Six sections match the analysis phases (Executive Summary, Spend by Service & Purchase Type, Coverage Analysis, Existing Commitments, Purchase Recommendations, Expiring Commitments Action Plan) plus the required closing Methodology section.
 
@@ -126,7 +126,7 @@ Write `RI-SP-Coverage-<DATE>.md` and/or `.html` per `output_format`, then `open`
 ## Output
 
 ```
-./ri-sp-coverage-analysis-<run_id>/
+./<run_id>/
 ├── scope.json                                 ← payer id, params, resolved lookback window
 ├── spend-decomposition.json                   ← step 2: service × purchase type + USAGE_TYPE drill-down
 ├── coverage.json                              ← step 3: SP + per-service RI coverage, RI inventory, region gaps

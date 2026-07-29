@@ -37,7 +37,7 @@ Build the account list from `~/.corgiro/state/roster.json`, applying `account_fi
 If `regions = auto`, use Cost Explorer to discover account/region combos with EC2 Compute spend > $0 in the last 90 days. Cost Explorer is a payer/org-level API, not a per-account call:
 
 - **`cross-account-role`:** query CE from the tooling/management session (delegated admin / payer access) — use local credentials, no per-account profile.
-- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `corgiro-<payerAccountId>`); if none is available, skip `auto` and fall back to the default region set.
+- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `<profilePrefix><payerAccountId>`); if none is available, skip `auto` and fall back to the shared `fallbackRegions` set.
 
 ```bash
 aws ce get-cost-and-usage \
@@ -48,10 +48,10 @@ aws ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
   --region us-east-1 --output json
   # cross-account-role: run with the tooling/management session (local creds)
-  # identity-center-direct: add --profile corgiro-<payerAccountId>
+  # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
-> **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account.
+> **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing the shared `fallbackRegions` set (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)) per reachable account.
 
 Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.
 
@@ -59,7 +59,7 @@ Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json
 
 For each reachable account + region (up to `max_parallel` concurrently):
 
-1. Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) -- dispatch on the account's `via`. The commands below omit credential flags; apply the resolved per-account credentials: `--profile corgiro-<accountId>` for `via: sso`, or the exported AssumeRole credentials for `via: assume-role`.
+1. Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) -- dispatch on the account's `via`. The commands below omit credential flags; apply the resolved per-account credentials: `--profile <profilePrefix><accountId>` for `via: sso`, or the exported AssumeRole credentials for `via: assume-role`.
 2. Collect instances:
    ```bash
    aws ec2 describe-instances \
@@ -179,7 +179,7 @@ Aggregate all per-account data into `aggregated.json`. Flag each instance:
 | Critical (`badge--red`) | Any: PREVIOUS_GEN_INSTANCE, IMDSV1_ENABLED, SSH_OPEN_TO_WORLD, RDP_OPEN_TO_WORLD, ALL_PORTS_OPEN, CPU_SATURATED, STATUS_CHECK_FAILURES, UNENCRYPTED_EBS                                                      |
 | High (`badge--orange`)  | Any: CPU_IDLE (running), STOPPED_WITH_VOLUMES, GP2_VOLUME_LARGE, NO_SNAPSHOT, EBS_BURST_DEPLETED, NO_IAM_ROLE, VERY_STALE_SNAPSHOT                                                                           |
 | Medium (`badge--amber`) | Any: GRAVITON_CANDIDATE, CPU_UNDERUTILIZED, DETAILED_MONITORING_OFF, GP2_VOLUME, IO1_VOLUME, STALE_SNAPSHOT, EBS_NOT_OPTIMIZED, PUBLIC_IP, NETWORK_IDLE, EBS_QUEUE_HIGH, DEDICATED_TENANCY, STOPPED_INSTANCE |
-| Low (`badge--green`)    | No flags                                                                                                                                                                                                     |
+| OK (`badge--green`)     | No flags                                                                                                                                                                                                     |
 
 ### Step 7: Cost Savings Estimates
 
@@ -201,7 +201,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 
 Report sections:
 
-1. **Executive Summary** -- KPI cards: total instances (running/stopped), health breakdown (Critical/High/Medium/Low), estimated monthly savings
+1. **Executive Summary** -- KPI cards: total instances (running/stopped), health breakdown (Critical/High/Medium/OK), estimated monthly savings
 2. **Critical Findings** -- instances with red health flags, grouped by finding type
 3. **Cost Optimization** -- Graviton candidates, gp2-to-gp3, stopped instance waste
 4. **Security Findings** -- open security groups, IMDSv1, unencrypted EBS, missing IAM roles
@@ -238,7 +238,7 @@ Write `EC2-Compute-Review-<DATE>.md` and/or `.html` per `output_format`. Then op
 | Symptom                                     | Action                                                                                              |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | Credential resolution fails for one account | Skip, note in report, continue (see `credential-resolution.md`)                                     |
-| Cost Explorer `AccessDeniedException`       | Under `identity-center-direct`, fall back to default region set; note savings estimates unavailable |
+| Cost Explorer `AccessDeniedException`       | Under `identity-center-direct`, fall back to the shared `fallbackRegions` set; note savings estimates unavailable |
 | `ThrottlingException`                       | Exponential backoff (base 1s, cap 30s); reduce `max_parallel`                                       |
 | CloudWatch returns no data for an instance  | Instance may be newly launched (< 14 days); note gap, skip performance scoring                      |
 | No instances found in any account           | Report "no EC2 instances found" in the summary; still generate report showing scope                 |

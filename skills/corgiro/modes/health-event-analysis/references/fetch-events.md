@@ -21,12 +21,12 @@ For `full` scope add `"closed"` to `eventStatusCodes`; add `"services": ["<servi
 
 ## Path A — Per-account (`identity-center-direct`)
 
-For each account in `~/.corgiro/state/roster.json`, resolve credentials per [credential-resolution.md](../../../references/credential-resolution.md) (`via: sso` → `--profile corgiro-<accountId>`) and call the single-account `describe-events`. Note the per-account filter uses `startTimes` — a **list** of range objects (not the org `startTime`).
+For each account in `~/.corgiro/state/roster.json`, resolve credentials per [credential-resolution.md](../../../references/credential-resolution.md) (`via: sso` → `--profile <profilePrefix><accountId>`) and call the single-account `describe-events`. Note the per-account filter uses `startTimes` — a **list** of range objects (not the org `startTime`).
 
 ```bash
 aws health describe-events \
   --region us-east-1 \
-  --profile corgiro-<accountId> \
+  --profile <profilePrefix><accountId> \
   --filter '{
     "eventStatusCodes": ["open", "upcoming"],
     "startTimes": [{"from": "<start_time_iso>", "to": "<end_time_iso>"}]

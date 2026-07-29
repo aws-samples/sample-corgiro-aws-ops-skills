@@ -6,37 +6,7 @@ How any mode obtains credentials for a given account. Modes stay access-mode-agn
 
 Before reading any credentials or config, run these checks at the start of every mode execution:
 
-### 1. Disk Encryption Verification (T1/T9)
-
-`~/.corgiro/` holds the ExternalId (cross-account trust secret). If the volume is unencrypted, credentials are recoverable from disk images or backups. Check before proceeding:
-
-**macOS (FileVault):**
-
-```bash
-CORGIRO_VOLUME=$(df ~/.corgiro | tail -1 | awk '{print $1}')
-diskutil apfs list "$CORGIRO_VOLUME" 2>/dev/null | grep -q "FileVault:.*Yes"
-```
-
-**Linux (LUKS):**
-
-```bash
-CORGIRO_MOUNT=$(df ~/.corgiro --output=source | tail -1)
-lsblk -o NAME,TYPE "$CORGIRO_MOUNT" 2>/dev/null | grep -q "crypt"
-```
-
-**Behavior:**
-
-- If encrypted: proceed silently.
-- If NOT encrypted or check is inconclusive: print a warning:
-  ```
-  WARNING: ~/.corgiro/ does not appear to be on an encrypted volume.
-  The ExternalId and account roster are stored in plaintext.
-  Recommendation: Enable FileVault (macOS) or LUKS (Linux) on this volume.
-  ```
-  Then ask the operator: `Continue anyway? [y/N]`. Default is abort.
-- If the check command is unavailable (e.g., container, CI): log a note and proceed (non-blocking).
-
-### 2. File Permission Verification
+### 1. File Permission Verification
 
 Verify permissions on every run (not just setup):
 
@@ -49,7 +19,7 @@ if [ "$CORGIRO_DIR_PERM" != "700" ]; then
 fi
 ```
 
-### 3. SSO Session Freshness Check (T2)
+### 2. SSO Session Freshness Check (T2)
 
 Cached SSO tokens in `~/.aws/sso/cache/` can be reused by anyone with workstation access. Enforce a maximum acceptable session age:
 
@@ -63,7 +33,7 @@ if [ -n "$CACHE_FILE" ]; then
     NOW_EPOCH=$(date "+%s")
     REMAINING=$(( EXPIRES_EPOCH - NOW_EPOCH ))
     if [ "$REMAINING" -le 0 ]; then
-      echo "SSO session expired. Run: aws sso login --sso-session corgiro"
+      echo "SSO session expired. Run: aws sso login --sso-session <sessionName>"
       exit 1
     fi
   fi
@@ -74,9 +44,43 @@ fi
 
 **MFA requirement:** Operators MUST have MFA enabled on their Identity Center authentication. Without MFA, token theft becomes a single-factor attack.
 
+## Roster Entry Schema (authoritative)
+
+This section is the **single source of truth** for the shape of a Roster Entry. Other documents (setup, account-coverage, mode references) link here — they do not restate the schema.
+
+`~/.corgiro/state/roster.json` maps a 12-digit account ID to a Roster Entry:
+
+```json
+{
+  "111111111111": {
+    "name": "prod-app",
+    "role": "ReadOnlyAccess",
+    "via": "sso",
+    "readOnlyEnforced": true,
+    "profile": "corgiro-111111111111",
+    "warning": "role is not in rolePriority (not a known read-only role)",
+    "reachable": true,
+    "lastProbedAt": "2026-07-29T19:36:04+07:00"
+  }
+}
+```
+
+| Field | Required | Written by | Meaning |
+|-------|----------|------------|---------|
+| `name` | yes | setup | Account display name |
+| `role` | yes | setup | Role/permission set used to reach the account |
+| `via` | yes | setup | Credential dispatch key: `sso` or `assume-role` |
+| `readOnlyEnforced` | yes | setup | `true` when read-only is guaranteed at the IAM layer (always for `assume-role`; for `sso` only when the role is a known read-only role). `false` entries are residual risk — surface them in summaries. |
+| `profile` | `sso` only | setup | Per-account CLI profile name (`<profilePrefix><accountId>`) |
+| `warning` | optional | setup | Residual-risk note (e.g. non-read-only role accepted by double-confirmation) |
+| `reachable` | optional | account-coverage | Result of the most recent reachability probe |
+| `lastProbedAt` | optional | account-coverage | Timestamp of that probe |
+
+Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist in the roster); `account-coverage` refreshes only the reachability fields (`reachable`, `lastProbedAt`) — under `cross-account-role` it also rebuilds scope from the org. Modes never write the roster.
+
 ## Inputs
 
-- Account ID and its roster entry: `{ "name", "role", "via", "readOnlyEnforced" }`
+- Account ID and its Roster Entry (schema above)
 - `~/.corgiro/config.json` → `accessMode`, `ssoSession`, `crossAccount`
 
 ## Dispatch on `via`
@@ -86,11 +90,11 @@ fi
 Use the per-account CLI profile written by `setup-corgiro` (Option A). No AssumeRole, no external ID — the CLI refreshes credentials from the cached SSO token.
 
 ```bash
-aws <service> <command> --profile corgiro-<accountId> --region <region> --output json
+aws <service> <command> --profile <profilePrefix><accountId> --region <region> --output json
 ```
 
 - Profile missing → roster is stale; re-run `/corgiro setup-corgiro` (Option A) to refresh profiles.
-- `aws sts get-caller-identity --profile corgiro-<accountId>` returns an auth error → SSO session expired; run `aws sso login --sso-session corgiro`.
+- `aws sts get-caller-identity --profile <profilePrefix><accountId>` returns an auth error → SSO session expired; run `aws sso login --sso-session <sessionName>`.
 
 ### via = "assume-role" — accessMode: cross-account-role
 

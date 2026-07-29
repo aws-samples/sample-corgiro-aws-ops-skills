@@ -67,4 +67,4 @@ There is no organizational event-aggregate API, so reduce volume instead:
 
 - Narrow the filter — shorter `time_range_days`, a specific `service_filter`, or `eventStatusCodes: ["open"]` only — and re-run Step 3.
 - Compute counts client-side from the summaries already pulled (`by_service`, `by_category`).
-- Per-account mode only: `aws health describe-event-aggregates --region us-east-1 --profile corgiro-<accountId> --aggregate-field eventTypeCategory` gives quick counts for a single account.
+- Per-account mode only: `aws health describe-event-aggregates --region us-east-1 --profile <profilePrefix><accountId> --aggregate-field eventTypeCategory` gives quick counts for a single account.

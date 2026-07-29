@@ -35,7 +35,7 @@ Identify RDS instances and Aurora clusters approaching or past end-of-support da
 
 If `regions = auto`, use Cost Explorer to find account/region combos with RDS spend in last 90 days. This avoids probing regions with no RDS resources.
 
-> Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator usually can't query org-wide CE — pass an explicit `regions` list, or probe a default region set per account (`describe-db-instances` simply returns empty where there's nothing).
+> Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator usually can't query org-wide CE — pass an explicit `regions` list, or probe the shared `fallbackRegions` set per account (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md); `describe-db-instances` simply returns empty where there's nothing).
 
 ### Step 3: Scrape EOL Dates
 
@@ -61,7 +61,7 @@ Match each instance/cluster engine version against scraped EOL dates:
 | 🔴 Critical | Already past standard support end date   |
 | 🟠 High     | Standard support ends within 6 months    |
 | 🟡 Medium   | Standard support ends within 12 months   |
-| 🟢 Low      | 12+ months of standard support remaining |
+| 🔵 Low      | 12+ months of standard support remaining |
 
 > **Engines without scrapeable AWS lifecycle dates.** Per [`../../references/aws-version-lifecycle.md`](../../references/aws-version-lifecycle.md), engines such as Oracle, SQL Server, DocumentDB, and Neptune have no AWS-published EOL calendar. Do not assign a risk tier — report them as "Vendor-managed lifecycle — consult vendor documentation."
 
@@ -71,7 +71,7 @@ For instances past or approaching EOL, calculate estimated extended support cost
 
 ### Step 7: Generate Report
 
-Render per the shared [`../../references/report-format.md`](../../references/report-format.md) — self-contained HTML + Markdown, Corgiro branding, KPI cards, tables, badges, footer. Risk tiers → badges: 🔴 Critical `badge--red`, 🟠 High `badge--orange`, 🟡 Medium `badge--amber`, 🟢 Low `badge--green`. Write `RDS-EOL-Analysis-<DATE>.md` and/or `.html` (`output_format`):
+Render per the shared [`../../references/report-format.md`](../../references/report-format.md) — self-contained HTML + Markdown, Corgiro branding, KPI cards, tables, badges, footer. Risk tiers → badges: 🔴 Critical `badge--red`, 🟠 High `badge--orange`, 🟡 Medium `badge--amber`, 🔵 Low `badge--blue`. Write `RDS-EOL-Analysis-<DATE>.md` and/or `.html` (`output_format`):
 
 1. Executive Summary — total instances, risk breakdown (KPI cards)
 2. Critical findings (past EOL) with upgrade paths

@@ -30,7 +30,7 @@ For every `aws` command in the mode:
 ## 4. Link Integrity
 
 - [ ] Links from `MODE.md` use `../../references/<name>.md`
-- [ ] Links from `references/step-*.md` use `../../../references/<name>.md`
+- [ ] Links from mode-local `references/*.md` use `../../../references/<name>.md`
 - [ ] All linked files exist
 
 ## 5. Leak Scan

@@ -82,7 +82,7 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
    chmod 700 ~/.corgiro ~/.corgiro/state
    chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json
    ```
-   The `700` directory mode also protects any state file written later in this flow (e.g. `coverage.json`). Recommend the operator keep `~/.corgiro/` on an OS-encrypted volume (FileVault on macOS, LUKS on Linux) — Corgiro can't enforce disk encryption, so call it out.
+   The `700` directory mode also protects any state file written later in this flow (e.g. `coverage.json`).
 3. **Validate reachability inline** (same probe as `account-coverage` Step 2): for each account in `roster.json`, resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and run `aws sts get-caller-identity`, up to `maxParallel` (4) at once. Categorize each as reachable or not, then write `~/.corgiro/state/coverage.json`. This makes downstream modes work immediately — no separate validation step is required. (For very large orgs this may take a few minutes.)
 4. Print a summary: access mode, accounts in scope, how many are reachable, and where state was saved. List any unreachable accounts with the one-line fix from the credential-resolution failure table.
    - **Residual-risk block.** If any roster entry has `readOnlyEnforced: false`, print a dedicated `RESIDUAL RISK` section listing those accounts and their roles, and state: _"Read-only is NOT enforced at the IAM layer on these accounts. Corgiro cannot prevent a mutating call if its behavior is subverted (e.g. via prompt injection in resource metadata). Recommended: re-run setup and select a read-only permission set for these accounts."_

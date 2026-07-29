@@ -30,7 +30,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ### Step 1: Prerequisite check
 
-Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (disk-encryption, `~/.corgiro/` permissions, SSO freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the SSO session is valid. Read `accessMode`.
+Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (`~/.corgiro/` permissions, SSO freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the SSO session is valid. Read `accessMode`.
 
 ### Step 2: Determine scope
 

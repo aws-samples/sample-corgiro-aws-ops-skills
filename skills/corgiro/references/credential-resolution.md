@@ -6,37 +6,7 @@ How any mode obtains credentials for a given account. Modes stay access-mode-agn
 
 Before reading any credentials or config, run these checks at the start of every mode execution:
 
-### 1. Disk Encryption Verification (T1/T9)
-
-`~/.corgiro/` holds the ExternalId (cross-account trust secret). If the volume is unencrypted, credentials are recoverable from disk images or backups. Check before proceeding:
-
-**macOS (FileVault):**
-
-```bash
-CORGIRO_VOLUME=$(df ~/.corgiro | tail -1 | awk '{print $1}')
-diskutil apfs list "$CORGIRO_VOLUME" 2>/dev/null | grep -q "FileVault:.*Yes"
-```
-
-**Linux (LUKS):**
-
-```bash
-CORGIRO_MOUNT=$(df ~/.corgiro --output=source | tail -1)
-lsblk -o NAME,TYPE "$CORGIRO_MOUNT" 2>/dev/null | grep -q "crypt"
-```
-
-**Behavior:**
-
-- If encrypted: proceed silently.
-- If NOT encrypted or check is inconclusive: print a warning:
-  ```
-  WARNING: ~/.corgiro/ does not appear to be on an encrypted volume.
-  The ExternalId and account roster are stored in plaintext.
-  Recommendation: Enable FileVault (macOS) or LUKS (Linux) on this volume.
-  ```
-  Then ask the operator: `Continue anyway? [y/N]`. Default is abort.
-- If the check command is unavailable (e.g., container, CI): log a note and proceed (non-blocking).
-
-### 2. File Permission Verification
+### 1. File Permission Verification
 
 Verify permissions on every run (not just setup):
 
@@ -49,7 +19,7 @@ if [ "$CORGIRO_DIR_PERM" != "700" ]; then
 fi
 ```
 
-### 3. SSO Session Freshness Check (T2)
+### 2. SSO Session Freshness Check (T2)
 
 Cached SSO tokens in `~/.aws/sso/cache/` can be reused by anyone with workstation access. Enforce a maximum acceptable session age:
 

@@ -329,7 +329,7 @@ chmod 700 ~/.corgiro ~/.corgiro/state
 chmod 600 ~/.corgiro/config.json
 ```
 
-Keep `~/.corgiro/` on an OS-encrypted volume (FileVault / LUKS). Setup Step 3 re-applies these permissions after writing the roster and coverage snapshot.
+Setup Step 3 re-applies these permissions after writing the roster and coverage snapshot.
 
 ## Step 6: Smoke Test
 

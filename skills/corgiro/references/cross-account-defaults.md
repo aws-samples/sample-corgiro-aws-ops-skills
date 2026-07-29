@@ -7,6 +7,7 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | Key | Default | Description |
 |-----|---------|-------------|
 | `ssoSessionName` | `corgiro` | IAM Identity Center session name |
+| `profilePrefix` | `corgiro-` | Prefix for per-account CLI profiles (`<profilePrefix><accountId>`, `identity-center-direct` mode) |
 | `permissionSetName` | `CorgiroOperator` | Permission set in the tooling account |
 | `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
 | `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust |
@@ -36,7 +37,7 @@ Written by `setup-corgiro`. The `accessMode` field selects which block is popula
 }
 ```
 
-For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identityCenter` carries `rolePriority`; per-account credentials come from `corgiro-<accountId>` CLI profiles instead of AssumeRole.
+For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identityCenter` carries `rolePriority`; per-account credentials come from `<profilePrefix><accountId>` CLI profiles (prefix from `identityCenter.profilePrefix`, default `corgiro-`) instead of AssumeRole.
 
 ## Per-Account AssumeRole Pattern
 

@@ -12,7 +12,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session (`aws sso login --sso-session corgiro`).
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session (`aws sso login --sso-session <sessionName>`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale) — this mode reads `~/.corgiro/state/roster.json`.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (per-account credential dispatch + pre-flight security checks) and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md) (defaults + AssumeRole pattern).
 - Reports render per [`../../references/report-format.md`](../../references/report-format.md).
@@ -47,7 +47,7 @@ aws ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
   --region us-east-1 --output json
   # cross-account-role: run with the tooling/management session (local creds)
-  # identity-center-direct: add --profile corgiro-<payerAccountId>
+  # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
 Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.

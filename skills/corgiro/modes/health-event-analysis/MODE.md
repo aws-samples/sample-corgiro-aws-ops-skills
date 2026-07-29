@@ -13,7 +13,7 @@ This mode adapts to the `accessMode` in `~/.corgiro/config.json`:
 | accessMode               | How events are collected                                                                                                                     |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cross-account-role`     | **Organizational Health API** (`*-for-organization`) from the management / delegated-admin account — one set of calls covers the whole org   |
-| `identity-center-direct` | **Per-account Health API** (`describe-events`, etc.) — fan out across the roster using `corgiro-<accountId>` profiles, one account at a time |
+| `identity-center-direct` | **Per-account Health API** (`describe-events`, etc.) — fan out across the roster using `<profilePrefix><accountId>` profiles, one account at a time |
 
 > The AWS Health API requires a **Business, Enterprise On-Ramp, or Enterprise Support** plan. In org mode the management account must have it; in per-account mode each account must have it, or that account is skipped (`SubscriptionRequiredException`) and listed in the report.
 

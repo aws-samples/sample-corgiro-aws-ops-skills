@@ -29,6 +29,7 @@ Prepares Corgiro to operate across multiple AWS accounts and saves the result to
   },
   "identityCenter": {
     "rolePriority": ["ReadOnlyAccess", "ViewOnlyAccess", "SecurityAudit"],
+    "profilePrefix": "corgiro-",
     "discoveredAt": "<iso8601>"
   },
   "crossAccount": null
@@ -64,7 +65,7 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
 
 ### Step 1 — Identity Center session
 
-- **Option A:** ensure an SSO session named `corgiro` exists (`aws configure sso-session`), capture `startUrl` and `ssoRegion`, then `aws sso login --sso-session corgiro` using your existing Identity Center access.
+- **Option A:** ensure an SSO session exists (`aws configure sso-session`) — default name `corgiro`, but an existing session works; record the chosen name as `ssoSession.sessionName`. Capture `startUrl` and `ssoRegion`, then `aws sso login --sso-session <sessionName>` using your existing Identity Center access.
 - **Option B:** do **not** log into the `corgiro` session here — the `CorgiroOperator` permission set doesn't exist yet. Option B needs **temporary payer (management) access** to provision trusted access, delegated admin, and the StackSet, and only then creates `CorgiroOperator` and logs in. Go straight to Step 2 → B.
   - Note: the StackSet can be deployed from the management account or a registered delegated admin account - see [StackSet Deployment Mode](references/option-b-cross-account.md#stackset-deployment-mode-decide-upfront).
 

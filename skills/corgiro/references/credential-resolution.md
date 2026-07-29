@@ -33,7 +33,7 @@ if [ -n "$CACHE_FILE" ]; then
     NOW_EPOCH=$(date "+%s")
     REMAINING=$(( EXPIRES_EPOCH - NOW_EPOCH ))
     if [ "$REMAINING" -le 0 ]; then
-      echo "SSO session expired. Run: aws sso login --sso-session corgiro"
+      echo "SSO session expired. Run: aws sso login --sso-session <sessionName>"
       exit 1
     fi
   fi
@@ -90,11 +90,11 @@ Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist 
 Use the per-account CLI profile written by `setup-corgiro` (Option A). No AssumeRole, no external ID — the CLI refreshes credentials from the cached SSO token.
 
 ```bash
-aws <service> <command> --profile corgiro-<accountId> --region <region> --output json
+aws <service> <command> --profile <profilePrefix><accountId> --region <region> --output json
 ```
 
 - Profile missing → roster is stale; re-run `/corgiro setup-corgiro` (Option A) to refresh profiles.
-- `aws sts get-caller-identity --profile corgiro-<accountId>` returns an auth error → SSO session expired; run `aws sso login --sso-session corgiro`.
+- `aws sts get-caller-identity --profile <profilePrefix><accountId>` returns an auth error → SSO session expired; run `aws sso login --sso-session <sessionName>`.
 
 ### via = "assume-role" — accessMode: cross-account-role
 

@@ -37,7 +37,7 @@ Build the account list from `~/.corgiro/state/roster.json`, applying `account_fi
 If `regions = auto`, use Cost Explorer to discover account/region combos with EC2 Compute spend > $0 in the last 90 days. Cost Explorer is a payer/org-level API, not a per-account call:
 
 - **`cross-account-role`:** query CE from the tooling/management session (delegated admin / payer access) — use local credentials, no per-account profile.
-- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `corgiro-<payerAccountId>`); if none is available, skip `auto` and fall back to the default region set.
+- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `<profilePrefix><payerAccountId>`); if none is available, skip `auto` and fall back to the default region set.
 
 ```bash
 aws ce get-cost-and-usage \
@@ -48,7 +48,7 @@ aws ce get-cost-and-usage \
   --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
   --region us-east-1 --output json
   # cross-account-role: run with the tooling/management session (local creds)
-  # identity-center-direct: add --profile corgiro-<payerAccountId>
+  # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
 > **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account.
@@ -59,7 +59,7 @@ Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json
 
 For each reachable account + region (up to `max_parallel` concurrently):
 
-1. Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) -- dispatch on the account's `via`. The commands below omit credential flags; apply the resolved per-account credentials: `--profile corgiro-<accountId>` for `via: sso`, or the exported AssumeRole credentials for `via: assume-role`.
+1. Resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) -- dispatch on the account's `via`. The commands below omit credential flags; apply the resolved per-account credentials: `--profile <profilePrefix><accountId>` for `via: sso`, or the exported AssumeRole credentials for `via: assume-role`.
 2. Collect instances:
    ```bash
    aws ec2 describe-instances \

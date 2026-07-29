@@ -33,7 +33,7 @@ Run these checks **before** prompting the user. Do not display the check list. I
 2. **Roster exists**: `~/.corgiro/state/roster.json` is present and fresh (else run `/corgiro account-coverage`).
 3. **Per-account reachability is tested during fetch** — do not probe every account here. Each account needs Business / Enterprise On-Ramp / Enterprise Support; accounts that return `SubscriptionRequiredException` in Step 3 are skipped and reported. A quick single-account validity check is optional:
    ```bash
-   aws health describe-events --region us-east-1 --profile corgiro-<one-account-id> --max-results 1
+   aws health describe-events --region us-east-1 --profile <profilePrefix><one-account-id> --max-results 1
    ```
 
 ## Error output format

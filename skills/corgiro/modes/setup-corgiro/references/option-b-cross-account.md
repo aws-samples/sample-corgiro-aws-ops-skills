@@ -69,7 +69,7 @@ The deployer is independent of the role's trust. The template's `ToolingAccountI
      region = <STACKSET_REGION>
      ```
 
-     Then `aws sso login --sso-session corgiro` and select this profile for the deploy - either `export AWS_PROFILE=corgiro-da` (applies to all Step 2.5 and Step 3 commands) or add `--profile corgiro-da` to each.
+     Then `aws sso login --sso-session <sessionName>` and select this profile for the deploy - either `export AWS_PROFILE=corgiro-da` (applies to all Step 2.5 and Step 3 commands) or add `--profile corgiro-da` to each.
 
    - **Fallback - role-chain via `OrganizationAccountAccessRole`.** If no permission set exists in the delegated-admin account, chain into the org-default admin role from a source profile that can assume it (typically the management account):
 
@@ -282,7 +282,7 @@ In IAM Identity Center:
 
 ## Step 5: Configure Laptop
 
-Run `aws configure sso` to register the Identity Center session and a base profile for the **tooling account**. The interactive prompt writes to `~/.aws/config`; the result should look like this:
+Run `aws configure sso` to register the Identity Center session and a base profile for the **tooling account**. The interactive prompt writes to `~/.aws/config`; the result should look like this (defaults shown — the session name comes from `ssoSession.sessionName`):
 
 ```ini
 [sso-session corgiro]
@@ -298,7 +298,7 @@ region = us-east-1
 output = json
 ```
 
-> **`corgiro` is the base identity every mode operates from.** This is the Option B analogue of Option A's per-account `corgiro-<accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile corgiro` (or `export AWS_PROFILE=corgiro`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
+> **`corgiro` is the base identity every mode operates from.** This is the Option B analogue of Option A's per-account `<profilePrefix><accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile corgiro` (or `export AWS_PROFILE=corgiro`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
 
 Write `~/.corgiro/config.json`:
 
@@ -334,7 +334,7 @@ Setup Step 3 re-applies these permissions after writing the roster and coverage 
 ## Step 6: Smoke Test
 
 ```bash
-aws sso login --sso-session corgiro
+aws sso login --sso-session <sessionName>
 aws sts get-caller-identity --profile corgiro
 aws organizations describe-organization --profile corgiro
 aws organizations list-delegated-administrators --service-principal health.amazonaws.com --profile corgiro

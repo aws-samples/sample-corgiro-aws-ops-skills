@@ -12,7 +12,7 @@ Uses the accounts and permission sets the operator is **already assigned** in IA
 TOKEN=$(jq -r 'select(.accessToken) | .accessToken' ~/.aws/sso/cache/*.json | head -1)
 ```
 
-The token is a short-lived secret. **Never print it.** If no valid token is found, tell the operator to re-run `aws sso login --sso-session corgiro`.
+The token is a short-lived secret. **Never print it.** If no valid token is found, tell the operator to re-run `aws sso login --sso-session <sessionName>`.
 
 ## A2: List assigned accounts
 
@@ -52,9 +52,9 @@ else                      → HARD STOP for this account -- no known read-only r
 
 ## A5: Write per-account CLI profiles
 
-> Heads-up: this adds a `[sso-session corgiro]` block and one `[profile corgiro-<accountId>]` entry per account to the operator's `~/.aws/config`. Existing profiles are left untouched — tell the operator before writing.
+> Heads-up: this adds a `[sso-session <sessionName>]` block and one `[profile <profilePrefix><accountId>]` entry per account to the operator's `~/.aws/config`. Existing profiles are left untouched — tell the operator before writing.
 
-Write the SSO session block once, then one profile per account into `~/.aws/config`:
+Write the SSO session block once, then one profile per account into `~/.aws/config` (defaults shown — the session name comes from `ssoSession.sessionName`, the profile prefix from `identityCenter.profilePrefix`):
 
 ```ini
 [sso-session corgiro]
@@ -70,11 +70,11 @@ region = us-east-1
 output = json
 ```
 
-This leverages the CLI's native SSO credential refresh — no custom credential handling. Downstream modes select an account with `--profile corgiro-<accountId>`.
+This leverages the CLI's native SSO credential refresh — no custom credential handling. Downstream modes select an account with `--profile <profilePrefix><accountId>`.
 
 ## A6: Save Corgiro config + roster
 
-- `~/.corgiro/config.json` → `accessMode: "identity-center-direct"`, `ssoSession`, `identityCenter.rolePriority`, `discoveredAt`.
+- `~/.corgiro/config.json` → `accessMode: "identity-center-direct"`, `ssoSession`, `identityCenter.rolePriority`, `identityCenter.profilePrefix` (the prefix used in A5, default `corgiro-`), `discoveredAt`.
 - `~/.corgiro/state/roster.json` → one Roster Entry per account, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `via: "sso"`, the per-account `profile`, and `readOnlyEnforced` — `true` for auto-picked known read-only roles, `false` for accounts the operator double-confirmed in A4 with a non-read-only role (record the `warning` field for those).
 
 After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgiro/state` and `chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json`. Setup Step 3 re-applies this after the coverage snapshot is written.
@@ -82,7 +82,7 @@ After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgi
 ## A7: Smoke test
 
 ```bash
-aws sts get-caller-identity --profile corgiro-<one-account-id>
+aws sts get-caller-identity --profile <profilePrefix><one-account-id>
 ```
 
 Confirm it returns the expected account and assumed role. Then return to setup **Step 3**, which validates reachability across all accounts and writes the coverage snapshot.

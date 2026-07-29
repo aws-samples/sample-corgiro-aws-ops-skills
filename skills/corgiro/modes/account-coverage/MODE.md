@@ -14,7 +14,7 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 
 ## Prerequisites
 
-- Valid SSO session: `aws sso login --sso-session corgiro`
+- Valid SSO session: `aws sso login --sso-session <sessionName>` (default `corgiro`)
 - `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not)
 - For `cross-account-role`: caller is in the tooling account
 

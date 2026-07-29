@@ -15,6 +15,7 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `sessionDurationSeconds` | `3600` | STS session duration |
 | `maxParallel` | `4` | Concurrent AssumeRole workers (hard ceiling 10 — clamp higher values) |
 | `defaultRegions` | `auto` | Regions to probe (`auto` = discover per account) |
+| `fallbackRegions` | `us-east-1, us-west-2, eu-west-1, ap-southeast-1` | Regions probed when `auto` discovery is unavailable (e.g. no payer-level Cost Explorer access) |
 | `rosterFreshnessHours` | `24` | Re-fetch roster if older than this |
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |

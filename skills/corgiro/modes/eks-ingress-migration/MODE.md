@@ -52,7 +52,7 @@ aws ce get-cost-and-usage \
 
 Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.
 
-> **Payer-level caveat:** Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account — `aws eks list-clusters` simply returns empty where there's nothing.
+> **Payer-level caveat:** Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing the shared `fallbackRegions` set (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)) per reachable account — `aws eks list-clusters` simply returns empty where there's nothing.
 
 If `regions` is an explicit list, use it directly without CE discovery.
 

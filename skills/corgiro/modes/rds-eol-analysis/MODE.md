@@ -35,7 +35,7 @@ Identify RDS instances and Aurora clusters approaching or past end-of-support da
 
 If `regions = auto`, use Cost Explorer to find account/region combos with RDS spend in last 90 days. This avoids probing regions with no RDS resources.
 
-> Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator usually can't query org-wide CE — pass an explicit `regions` list, or probe a default region set per account (`describe-db-instances` simply returns empty where there's nothing).
+> Cost Explorer is a payer-level API. Under `identity-center-direct`, the operator usually can't query org-wide CE — pass an explicit `regions` list, or probe the shared `fallbackRegions` set per account (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md); `describe-db-instances` simply returns empty where there's nothing).
 
 ### Step 3: Scrape EOL Dates
 

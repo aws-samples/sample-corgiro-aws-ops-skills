@@ -37,7 +37,7 @@ Build the account list from `~/.corgiro/state/roster.json`, applying `account_fi
 If `regions = auto`, use Cost Explorer to discover account/region combos with EC2 Compute spend > $0 in the last 90 days. Cost Explorer is a payer/org-level API, not a per-account call:
 
 - **`cross-account-role`:** query CE from the tooling/management session (delegated admin / payer access) — use local credentials, no per-account profile.
-- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `<profilePrefix><payerAccountId>`); if none is available, skip `auto` and fall back to the default region set.
+- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `<profilePrefix><payerAccountId>`); if none is available, skip `auto` and fall back to the shared `fallbackRegions` set.
 
 ```bash
 aws ce get-cost-and-usage \
@@ -51,7 +51,7 @@ aws ce get-cost-and-usage \
   # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
-> **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing a default region set (`us-east-1`, `us-west-2`, `eu-west-1`, `ap-southeast-1`) per reachable account.
+> **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to probing the shared `fallbackRegions` set (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)) per reachable account.
 
 Extract unique `{account_id, region}` pairs with spend > $0. Save to `scope.json`.
 
@@ -238,7 +238,7 @@ Write `EC2-Compute-Review-<DATE>.md` and/or `.html` per `output_format`. Then op
 | Symptom                                     | Action                                                                                              |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | Credential resolution fails for one account | Skip, note in report, continue (see `credential-resolution.md`)                                     |
-| Cost Explorer `AccessDeniedException`       | Under `identity-center-direct`, fall back to default region set; note savings estimates unavailable |
+| Cost Explorer `AccessDeniedException`       | Under `identity-center-direct`, fall back to the shared `fallbackRegions` set; note savings estimates unavailable |
 | `ThrottlingException`                       | Exponential backoff (base 1s, cap 30s); reduce `max_parallel`                                       |
 | CloudWatch returns no data for an instance  | Instance may be newly launched (< 14 days); note gap, skip performance scoring                      |
 | No instances found in any account           | Report "no EC2 instances found" in the summary; still generate report showing scope                 |

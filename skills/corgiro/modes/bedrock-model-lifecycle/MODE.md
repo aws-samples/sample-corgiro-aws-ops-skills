@@ -21,7 +21,7 @@ Gather from the user before starting:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `regions` | _(ask)_ | Bedrock regions to scan. Suggest: `us-east-1, us-west-2, eu-west-1, ap-northeast-1`. User must provide explicitly — no `auto` discovery. |
+| `regions` | _(ask)_ | Bedrock regions to scan. Suggest the shared `fallbackRegions` set (see [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)), adjusted for Bedrock model availability. User must provide explicitly — no `auto` discovery. |
 | `lookback_days` | `30` | CloudWatch metrics lookback window (7, 14, 30, 60, 90) |
 | `horizon_days` | `60` | How far ahead to flag approaching lifecycle transitions (default: 2 months) |
 | `account_filter` | _(from config)_ | Include/exclude lists |

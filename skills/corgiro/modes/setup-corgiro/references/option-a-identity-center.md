@@ -75,7 +75,7 @@ This leverages the CLI's native SSO credential refresh — no custom credential 
 ## A6: Save Corgiro config + roster
 
 - `~/.corgiro/config.json` → `accessMode: "identity-center-direct"`, `ssoSession`, `identityCenter.rolePriority`, `discoveredAt`.
-- `~/.corgiro/state/roster.json` → one entry per account: `{ "name", "role", "via": "sso", "readOnlyEnforced": <true|false> }`. `readOnlyEnforced` is `true` for auto-picked known read-only roles, `false` for accounts the operator double-confirmed in A4 with a non-read-only role.
+- `~/.corgiro/state/roster.json` → one Roster Entry per account, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `via: "sso"`, the per-account `profile`, and `readOnlyEnforced` — `true` for auto-picked known read-only roles, `false` for accounts the operator double-confirmed in A4 with a non-read-only role (record the `warning` field for those).
 
 After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgiro/state` and `chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json`. Setup Step 3 re-applies this after the coverage snapshot is written.
 

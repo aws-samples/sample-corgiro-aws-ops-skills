@@ -44,9 +44,43 @@ fi
 
 **MFA requirement:** Operators MUST have MFA enabled on their Identity Center authentication. Without MFA, token theft becomes a single-factor attack.
 
+## Roster Entry Schema (authoritative)
+
+This section is the **single source of truth** for the shape of a Roster Entry. Other documents (setup, account-coverage, mode references) link here — they do not restate the schema.
+
+`~/.corgiro/state/roster.json` maps a 12-digit account ID to a Roster Entry:
+
+```json
+{
+  "111111111111": {
+    "name": "prod-app",
+    "role": "ReadOnlyAccess",
+    "via": "sso",
+    "readOnlyEnforced": true,
+    "profile": "corgiro-111111111111",
+    "warning": "role is not in rolePriority (not a known read-only role)",
+    "reachable": true,
+    "lastProbedAt": "2026-07-29T19:36:04+07:00"
+  }
+}
+```
+
+| Field | Required | Written by | Meaning |
+|-------|----------|------------|---------|
+| `name` | yes | setup | Account display name |
+| `role` | yes | setup | Role/permission set used to reach the account |
+| `via` | yes | setup | Credential dispatch key: `sso` or `assume-role` |
+| `readOnlyEnforced` | yes | setup | `true` when read-only is guaranteed at the IAM layer (always for `assume-role`; for `sso` only when the role is a known read-only role). `false` entries are residual risk — surface them in summaries. |
+| `profile` | `sso` only | setup | Per-account CLI profile name (`<profilePrefix><accountId>`) |
+| `warning` | optional | setup | Residual-risk note (e.g. non-read-only role accepted by double-confirmation) |
+| `reachable` | optional | account-coverage | Result of the most recent reachability probe |
+| `lastProbedAt` | optional | account-coverage | Timestamp of that probe |
+
+Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist in the roster); `account-coverage` refreshes only the reachability fields (`reachable`, `lastProbedAt`) — under `cross-account-role` it also rebuilds scope from the org. Modes never write the roster.
+
 ## Inputs
 
-- Account ID and its roster entry: `{ "name", "role", "via", "readOnlyEnforced" }`
+- Account ID and its Roster Entry (schema above)
 - `~/.corgiro/config.json` → `accessMode`, `ssoSession`, `crossAccount`
 
 ## Dispatch on `via`

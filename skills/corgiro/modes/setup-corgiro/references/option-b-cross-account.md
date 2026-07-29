@@ -346,6 +346,6 @@ Then build the roster from the full org and save it:
 aws organizations list-accounts --profile corgiro --output json
 ```
 
-Write `~/.corgiro/state/roster.json` with one entry per ACTIVE account: `{ "name", "role": "CorgiroReadOnlyRole", "via": "assume-role", "readOnlyEnforced": true }`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
+Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "CorgiroReadOnlyRole"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
 
 Then return to setup **Step 3**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)

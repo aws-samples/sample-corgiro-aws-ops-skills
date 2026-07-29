@@ -37,7 +37,7 @@ Prepares Corgiro to operate across multiple AWS accounts and saves the result to
 
 For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, and `crossAccount` carries `toolingAccountId`, `externalId`, `memberRoleName`, and `accountFilter`.
 
-`~/.corgiro/state/roster.json` — per-account resolution, written by both paths so downstream modes are access-mode-agnostic:
+`~/.corgiro/state/roster.json` — per-account resolution, written by both paths so downstream modes are access-mode-agnostic. The entry schema is owned by [`../../references/credential-resolution.md`](../../references/credential-resolution.md) → "Roster Entry Schema" — non-normative example:
 
 ```json
 {
@@ -45,7 +45,8 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
     "name": "prod-app",
     "role": "ReadOnlyAccess",
     "via": "sso",
-    "readOnlyEnforced": true
+    "readOnlyEnforced": true,
+    "profile": "corgiro-111111111111"
   }
 }
 ```

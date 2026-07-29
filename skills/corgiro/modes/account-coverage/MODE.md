@@ -74,9 +74,9 @@ Reachability → badges: reachable `badge--green`; `auth_expired` / `role_missin
 Update snapshots:
 
 - `~/.corgiro/state/coverage.json` — reachability result (both modes)
-- `~/.corgiro/state/roster.json`:
-  - **cross-account-role**: authoritative — write the discovered org accounts (each entry `via: "assume-role"`)
-  - **identity-center-direct**: owned by `setup-corgiro` — refresh reachability flags only; do not add/remove accounts (re-run setup to change scope)
+- `~/.corgiro/state/roster.json` — entries follow the [Roster Entry Schema](../../references/credential-resolution.md#roster-entry-schema-authoritative):
+  - **cross-account-role**: rebuild scope from the discovered org accounts (each entry `via: "assume-role"`)
+  - **identity-center-direct**: scope owned by `setup-corgiro` — refresh the reachability fields (`reachable`, `lastProbedAt`) only; do not add/remove accounts (re-run setup to change scope)
 
 ## Output
 

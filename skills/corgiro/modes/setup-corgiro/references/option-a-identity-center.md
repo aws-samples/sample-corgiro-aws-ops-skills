@@ -77,7 +77,7 @@ This leverages the CLI's native SSO credential refresh — no custom credential 
 - `~/.corgiro/config.json` → `accessMode: "identity-center-direct"`, `ssoSession`, `identityCenter.rolePriority`, `identityCenter.profilePrefix` (the prefix used in A5, default `corgiro-`), `discoveredAt`.
 - `~/.corgiro/state/roster.json` → one Roster Entry per account, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `via: "sso"`, the per-account `profile`, and `readOnlyEnforced` — `true` for auto-picked known read-only roles, `false` for accounts the operator double-confirmed in A4 with a non-read-only role (record the `warning` field for those).
 
-After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgiro/state` and `chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json`. Setup Step 3 re-applies this after the coverage snapshot is written.
+After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgiro/state` and `chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json`. Setup MODE.md Step 3 (Validate access & finalize) re-applies this after the coverage snapshot is written.
 
 ## A7: Smoke test
 
@@ -85,7 +85,7 @@ After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgi
 aws sts get-caller-identity --profile <profilePrefix><one-account-id>
 ```
 
-Confirm it returns the expected account and assumed role. Then return to setup **Step 3**, which validates reachability across all accounts and writes the coverage snapshot.
+Confirm it returns the expected account and assumed role. Then return to setup **MODE.md Step 3 (Validate access & finalize)**, which validates reachability across all accounts and writes the coverage snapshot.
 
 ## Notes & limits
 

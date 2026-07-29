@@ -24,7 +24,6 @@ Downstream modes (RDS EOL, health events) rely on the coverage map and `state/ro
 | ---------------- | --------------- | ------------------------------------------- |
 | `max_parallel`   | `4`             | Concurrent probes                           |
 | `account_filter` | _(from config)_ | Include/exclude lists                       |
-| `refresh`        | `false`         | Force fresh pull regardless of snapshot age |
 | `output_format`  | `both`          | `markdown`, `html`, or `both`               |
 
 ## Workflow
@@ -80,7 +79,7 @@ Update snapshots:
 ```
 ./<run_id>/
 ├── scope.json
-├── accounts.json
+├── accounts.json   (cross-account-role only — org pull)
 ├── coverage.json
 ├── diff.json
 ├── Coverage-Report-<DATE>.md

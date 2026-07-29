@@ -329,7 +329,7 @@ chmod 700 ~/.corgiro ~/.corgiro/state
 chmod 600 ~/.corgiro/config.json
 ```
 
-Setup Step 3 re-applies these permissions after writing the roster and coverage snapshot.
+Setup MODE.md Step 3 (Validate access & finalize) re-applies these permissions after writing the roster and coverage snapshot.
 
 ## Step 6: Smoke Test
 
@@ -348,4 +348,4 @@ aws organizations list-accounts --profile corgiro --output json
 
 Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "CorgiroReadOnlyRole"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
 
-Then return to setup **Step 3**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)
+Then return to setup **MODE.md Step 3 (Validate access & finalize)**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)

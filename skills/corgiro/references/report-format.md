@@ -21,7 +21,7 @@ single-file HTML** — no scripts to run, no build step, no network calls.
 9. **Inline assets by injection, not transcription.** The logo data URI (a single ~16 KB base64 line) and the CSS are too large to copy through the model reliably — hand-transcription truncates or corrupts them, producing a broken/missing logo. Instead, author the HTML with placeholder tokens and splice the real files in with a script. Use placeholders `/*__CORGIRO_CSS__*/` inside the `<style>` block and `__CORGIRO_LOGO__` as the `.brand-logo` `src`, then run (resolve `<assets>` to the skill's `assets/` directory):
 
    ```bash
-   python - <<'PY'
+   python3 - <<'PY'
    css  = open('<assets>/report-theme.css').read()
    logo = open('<assets>/corgiro-logo.datauri').read().strip()
    p = '<run_dir>/<Report-Name>-<DATE>.html'

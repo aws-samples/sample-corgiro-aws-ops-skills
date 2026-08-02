@@ -15,7 +15,8 @@ IAM is a **global** service, so IAM calls run once per account (no region fan-ou
 - Coverage snapshot exists and is fresh (run `account-coverage` mode if not)
 - Valid SSO session
 - `~/.corgiro/config.json` configured
-- Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (per-account access, `via` dispatch, pre-flight security checks) and [`../../references/report-format.md`](../../references/report-format.md) (report output)
+- Read [`references/cross-account-defaults.md`](../../references/cross-account-defaults.md) and [`references/credential-resolution.md`](../../references/credential-resolution.md) 
+- Read [`references/report-format.md`](../../references/report-format.md) (report output)
 
 ## Parameters
 

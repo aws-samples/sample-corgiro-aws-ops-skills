@@ -2,11 +2,14 @@
 
 Default configuration values used by all Corgiro modes. Operator-specific values in `~/.corgiro/config.json` override these.
 
-> For how modes obtain credentials per account, see [credential-resolution.md](credential-resolution.md) — it dispatches on each roster entry's `via` field. The AssumeRole pattern below applies to the `cross-account-role` access mode.
+> For how modes obtain credentials per account, see [credential-resolution.md](credential-resolution.md) — it dispatches on each roster entry's `via` field, and on `authMethod` for the operator's base session. The AssumeRole pattern below applies to the `cross-account-role` access mode under either `authMethod`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `ssoSessionName` | `corgiro` | IAM Identity Center session name |
+| `authMethod` | `identity-center` | How the operator obtains the base session: `identity-center` or `saml-external`. Absent ⇒ `identity-center`. |
+| `authProfile` | `corgiro` | Base CLI profile holding the tooling-account session (`saml-external`; `auth.profile`) |
+| `operatorRoleName` | `CorgiroOperator` | Operator role assumed in the tooling account (`saml-external`; must match the StackSet's `OperatorRoleName`) |
+| `ssoSessionName` | `corgiro` | IAM Identity Center session name (`identity-center` only) |
 | `profilePrefix` | `corgiro-` | Prefix for per-account CLI profiles (`<profilePrefix><accountId>`, `identity-center-direct` mode) |
 | `permissionSetName` | `CorgiroOperator` | Permission set in the tooling account |
 | `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
@@ -24,13 +27,15 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 
 ## Operator Config File (`~/.corgiro/config.json`)
 
-Written by `setup-corgiro`. The `accessMode` field selects which block is populated.
+Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained.
 
 ```json
 {
   "accessMode": "cross-account-role",
+  "authMethod": "identity-center",
   "ssoSession": { "sessionName": "corgiro", "startUrl": "https://ORG.awsapps.com/start", "ssoRegion": "us-east-1" },
   "identityCenter": null,
+  "auth": null,
   "crossAccount": {
     "toolingAccountId": "123456789012",
     "externalId": "your-external-id-here",
@@ -41,6 +46,32 @@ Written by `setup-corgiro`. The `accessMode` field selects which block is popula
 ```
 
 For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identityCenter` carries `rolePriority`; per-account credentials come from `<profilePrefix><accountId>` CLI profiles (prefix from `identityCenter.profilePrefix`, default `corgiro-`) instead of AssumeRole.
+
+### `authMethod: "saml-external"`
+
+`ssoSession` is `null` and `auth` carries the base-profile details. Everything under `crossAccount` is unchanged — only how the tooling-account session is obtained differs.
+
+```json
+{
+  "accessMode": "cross-account-role",
+  "authMethod": "saml-external",
+  "ssoSession": null,
+  "identityCenter": null,
+  "auth": {
+    "profile": "corgiro",
+    "loginCommand": "aws-azure-login --profile corgiro",
+    "operatorRoleArn": "arn:aws:iam::123456789012:role/CorgiroOperator"
+  },
+  "crossAccount": {
+    "toolingAccountId": "123456789012",
+    "externalId": "your-external-id-here",
+    "memberRoleName": "CorgiroReadOnlyRole",
+    "accountFilter": { "include": [], "exclude": [] }
+  }
+}
+```
+
+`auth.loginCommand` is used only to print the correct re-login instruction on `auth_expired`; Corgiro never executes it. `auth.operatorRoleArn` must name the same role as the StackSet's `OperatorRoleName` parameter. See [credential-resolution.md](credential-resolution.md#auth-method-dispatch) for the preconditions, the invalid `identity-center-direct` combination, and the IdP-side residual risk.
 
 ## Per-Account AssumeRole Pattern
 

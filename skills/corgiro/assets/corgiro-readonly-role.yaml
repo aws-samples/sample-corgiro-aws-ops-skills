@@ -2,8 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Corgiro - per-account read-only role (CorgiroReadOnlyRole).
   Deployed to every member account via a service-managed StackSet from the
-  management account. Trusted only by the CorgiroOperator Identity Center
-  permission set in the tooling account, gated by an external ID.
+  management account. Trusted only by the Corgiro operator identity in the
+  tooling account - the CorgiroOperator Identity Center permission set, and/or
+  an external-IdP role named by OperatorRoleName - gated by an external ID.
 
 Parameters:
   ToolingAccountId:
@@ -26,10 +27,28 @@ Parameters:
   PermissionSetNamePrefix:
     Type: String
     Description: >
-      The Identity Center permission set name used by Corgiro operators.
-      Identity Center provisions the actual role as
-      AWSReservedSSO_<name>_<hash>, so the trust uses ArnLike with a wildcard.
+      The Identity Center permission set name used by Corgiro operators
+      (authMethod: identity-center). Identity Center provisions the actual role
+      as AWSReservedSSO_<name>_<hash>, so the trust uses ArnLike with a
+      wildcard. Set to an empty string to omit the Identity Center principals
+      entirely - do this only in an org that uses an external IdP exclusively,
+      and then OperatorRoleName must be set.
     Default: CorgiroOperator
+
+  OperatorRoleName:
+    Type: String
+    Description: >
+      Name (optionally path-qualified) of an IAM role in the tooling account
+      that Corgiro operators reach through an external identity provider
+      (authMethod: saml-external, e.g. aws-azure-login). Leave empty for
+      Identity Center only, which is the default and reproduces the trust
+      policy exactly as it was before this parameter existed. Wildcards are
+      rejected: this must name one specific role.
+    Default: ""
+    AllowedPattern: "^$|^[\\w+=,.@/-]{1,512}$"
+    ConstraintDescription: >
+      Must be empty, or an IAM role name/path using only alphanumerics and
+      _+=,.@/- characters. Wildcards such as * are not permitted.
 
   RoleName:
     Type: String
@@ -47,6 +66,15 @@ Parameters:
     Default: 3600
     MinValue: 900
     MaxValue: 43200
+
+Conditions:
+  # Emit the Identity Center principals unless the operator explicitly opted
+  # out. Default PermissionSetNamePrefix is CorgiroOperator, so this is true
+  # for every existing deployment and the rendered trust policy is unchanged.
+  HasIdcOperator: !Not [!Equals [!Ref PermissionSetNamePrefix, ""]]
+
+  # Emit the external-IdP operator role only when one was supplied.
+  HasSamlOperator: !Not [!Equals [!Ref OperatorRoleName, ""]]
 
 Resources:
   CorgiroDataPlaneDenyPolicy:
@@ -120,12 +148,37 @@ Resources:
             Action: sts:AssumeRole
             Condition:
               ArnLike:
+                # Narrows the tooling-account root principal above to just the
+                # Corgiro operator identity. Which principals are emitted
+                # depends on the two Conditions:
+                #
+                #   PermissionSetNamePrefix  OperatorRoleName  -> principals
+                #   CorgiroOperator (default) ""      (default)   2 (IdC only)
+                #   CorgiroOperator           MyRole             3 (both)
+                #   ""                        MyRole             1 (SAML only)
+                #   ""                        ""                 0 -> fails closed
+                #
                 # Identity Center provisions roles as either:
                 # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<name>_<hash>
                 # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_<name>_<hash>
-                aws:PrincipalArn:
-                  - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
-                  - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                aws:PrincipalArn: !If
+                  - HasIdcOperator
+                  - !If
+                    - HasSamlOperator
+                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
+                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                  - !If
+                    - HasSamlOperator
+                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
+                    # Both parameters empty: no operator principal is trusted, so
+                    # the role becomes unassumable. This is deliberate - it fails
+                    # closed rather than widening the trust to the tooling
+                    # account root. Expect the deploy itself to reject the empty
+                    # condition value; do not "fix" it by removing the ArnLike.
+                    - []
               StringEquals:
                 sts:ExternalId: !Ref ExternalId
       ManagedPolicyArns:

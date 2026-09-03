@@ -1,6 +1,6 @@
 ---
 name: setup-corgiro
-description: "One-time setup for Corgiro multi-account access. Two paths: (A) use your existing IAM Identity Center access — fast, no org changes; or (B) provision org-wide cross-account access — deploys CorgiroReadOnlyRole via StackSet. Both save state to ~/.corgiro/. Use for first-time setup, onboarding an operator, configuring multi-account access, or switching access modes."
+description: "One-time setup for Corgiro multi-account access. Two paths: (A) use your existing IAM Identity Center access — fast, no org changes; or (B) provision org-wide cross-account access — deploys CorgiroReadOnlyRole via StackSet, with either IAM Identity Center or an external SAML IdP (Azure AD/Entra, Okta, aws-azure-login) as the operator's entry point. Both save state to ~/.corgiro/. Use for first-time setup, onboarding an operator, configuring multi-account access, switching access modes, or setting up Corgiro without IAM Identity Center."
 user-invocable: true
 ---
 
@@ -13,7 +13,7 @@ Prepares Corgiro to operate across multiple AWS accounts and saves the result to
 | **A — Existing access** (`identity-center-direct`) | You already sign in via IAM Identity Center and just want Corgiro to use the accounts you're assigned | Discovers your assigned accounts/roles, writes per-account CLI profiles | None                                    | Accounts you're assigned       |
 | **B — Cross-account setup** (`cross-account-role`) | You administer the org and want full, consistent, read-only coverage of every account                 | Trusted access, delegated admin, deploys `CorgiroReadOnlyRole` org-wide | Yes (needs temporary payer + IdC admin) | Entire org (+ future accounts) |
 
-> v1 supports IAM Identity Center as the entry point for both paths. Other identity providers (e.g. Azure AD or role chaining without Identity Center) are out of scope for v1.
+> **Identity provider.** Path A requires IAM Identity Center. Path B supports either Identity Center or an **external SAML IdP** (Azure AD / Entra ID, Okta, PingFederate, ADFS via `aws-azure-login`, `saml2aws`, `gimme-aws-creds`), recorded as `authMethod` in `config.json`. Path A has no external-IdP variant: it discovers accounts through the Identity Center token APIs, which have no external-IdP equivalent.
 
 ## Output (both paths)
 
@@ -22,6 +22,7 @@ Prepares Corgiro to operate across multiple AWS accounts and saves the result to
 ```json
 {
   "accessMode": "identity-center-direct",
+  "authMethod": "identity-center",
   "ssoSession": {
     "sessionName": "corgiro",
     "startUrl": "https://ORG.awsapps.com/start",
@@ -32,11 +33,14 @@ Prepares Corgiro to operate across multiple AWS accounts and saves the result to
     "profilePrefix": "corgiro-",
     "discoveredAt": "<iso8601>"
   },
+  "auth": null,
   "crossAccount": null
 }
 ```
 
 For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, and `crossAccount` carries `toolingAccountId`, `externalId`, `memberRoleName`, and `accountFilter`.
+
+`authMethod` is `identity-center` (default) or `saml-external`; under `saml-external`, `ssoSession` is `null` and `auth` carries `profile`, `loginCommand` and `operatorRoleArn`. A config file with no `authMethod` field is treated as `identity-center`. Full schema and the valid-combination matrix: [`../../references/credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch).
 
 `~/.corgiro/state/roster.json` — per-account resolution, written by both paths so downstream modes are access-mode-agnostic. The entry schema is owned by [`../../references/credential-resolution.md`](../../references/credential-resolution.md) → "Roster Entry Schema" — non-normative example:
 
@@ -63,18 +67,28 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
 1. If `~/.corgiro/config.json` exists, show the current `accessMode` and offer: reconfigure / switch mode / cancel.
 2. Otherwise ask the operator: **A (existing access)** or **B (cross-account setup)**. Do not guess.
 
-### Step 1 — Identity Center session
+### Step 1 — Operator session
 
 - **Option A:** ensure an SSO session exists (`aws configure sso-session`) — default name `corgiro`, but an existing session works; record the chosen name as `ssoSession.sessionName`. Capture `startUrl` and `ssoRegion`, then `aws sso login --sso-session <sessionName>` using your existing Identity Center access.
-- **Option B:** do **not** log into the `corgiro` session here — the `CorgiroOperator` permission set doesn't exist yet. Option B needs **temporary payer (management) access** to provision trusted access, delegated admin, and the StackSet, and only then creates `CorgiroOperator` and logs in. Go straight to Step 2 → B.
+- **Option B:** ask which identity provider the operator uses, and record it as `authMethod`. Do not guess.
+
+  | Answer                                                          | `authMethod`       |
+  | --------------------------------------------------------------- | ------------------ |
+  | IAM Identity Center                                             | `identity-center`  |
+  | External SAML IdP (Azure AD/Entra, Okta, PingFederate, ADFS)     | `saml-external`    |
+
+  Either way, do **not** log in as the operator here — the operator identity doesn't exist yet. Option B needs **temporary payer (management) access** to provision trusted access, delegated admin, and the StackSet, and only then creates the operator identity and logs in. Go straight to Step 2 → B.
   - Note: the StackSet can be deployed from the management account or a registered delegated admin account - see [StackSet Deployment Mode](references/option-b-cross-account.md#stackset-deployment-mode-decide-upfront).
 
 ### Step 2 — Run the chosen path
 
-- **A** → read **only** [`references/option-a-identity-center.md`](references/option-a-identity-center.md) and follow it.
-- **B** → read **only** [`references/option-b-cross-account.md`](references/option-b-cross-account.md) and follow it.
+| Path                        | Read, in order                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A**                       | [`references/option-a-identity-center.md`](references/option-a-identity-center.md)                                                                             |
+| **B**, `identity-center`    | [`references/option-b-cross-account.md`](references/option-b-cross-account.md) — the whole file                                                                |
+| **B**, `saml-external`      | [`references/option-b-saml-external.md`](references/option-b-saml-external.md) first (it states the deltas), then [`references/option-b-cross-account.md`](references/option-b-cross-account.md) **Steps 0–3 only**, then back for Steps 4–6 |
 
-> Read just the one reference for the chosen path — do not load both.
+> Load only the references your path routes you to, in the order given — not all of them. The `saml-external` path reads two files because Steps 0–3 (trusted access, delegated-admin gate, StackSet deploy) are shared and deliberately single-sourced rather than duplicated.
 
 ### Step 3 — Validate access & finalize (common)
 
@@ -89,6 +103,7 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
 4. Print a summary: access mode, accounts in scope, how many are reachable, and where state was saved. List any unreachable accounts with the one-line fix from the credential-resolution failure table.
    - **Residual-risk block.** If any roster entry has `readOnlyEnforced: false`, print a dedicated `RESIDUAL RISK` section listing those accounts and their roles, and state: _"Read-only is NOT enforced at the IAM layer on these accounts. Corgiro cannot prevent a mutating call if its behavior is subverted (e.g. via prompt injection in resource metadata). Recommended: re-run setup and select a read-only permission set for these accounts."_
    - If `accessMode` is `identity-center-direct`, always include a one-line note that this mode provides no IAM enforcement of read-only -- coverage and privilege equal the operator's permission sets.
+   - If `authMethod` is `saml-external`, also print the IdP-side entitlement note from [`../../references/credential-resolution.md`](../../references/credential-resolution.md#residual-risk-saml-external): Corgiro cannot verify who is entitled to the operator role or that MFA was enforced, because both live in the external IdP. Read-only in member accounts **is** still IAM-enforced by `CorgiroReadOnlyRole`, so `readOnlyEnforced` stays `true` — do not conflate the two.
 5. To re-check access later — or to pick up newly assigned/added accounts — run `/corgiro account-coverage` anytime. It re-probes and refreshes the snapshot.
 
 ## Safety
@@ -98,4 +113,5 @@ For path B, `accessMode` is `cross-account-role`, `identityCenter` is `null`, an
 
 ## Assets
 
-- [`../../assets/corgiro-readonly-role.yaml`](../../assets/corgiro-readonly-role.yaml) — used by path B.
+- [`../../assets/corgiro-readonly-role.yaml`](../../assets/corgiro-readonly-role.yaml) — member-account read-only role; used by path B under either `authMethod`.
+- [`../../assets/corgiro-operator-role.yaml`](../../assets/corgiro-operator-role.yaml) — tooling-account operator role; used by path B only when `authMethod` is `saml-external`.

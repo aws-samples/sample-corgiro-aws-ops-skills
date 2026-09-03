@@ -2,7 +2,7 @@
 name: corgiro
 description: "AWS Cloud Operations assistant for multi-account organizations. Inspect and manage AWS accounts across an entire AWS Organization — health events, end-of-support analysis, account coverage, and cross-account setup. Use when the user mentions AWS health events, RDS or EKS end-of-support, account coverage probe, multi-account setup, or types /corgiro <mode>. Each mode is documented in modes/<name>/MODE.md."
 license: MIT-0
-compatibility: "Requires AWS CLI v2 and IAM Identity Center (SSO). The cross-account-role access mode also needs read access to an AWS Organization. Reports are generated as Markdown/HTML — no additional runtime required."
+compatibility: "Requires AWS CLI v2. Operator sign-in uses IAM Identity Center (SSO), or an external SAML IdP (Azure AD/Entra ID, Okta, PingFederate, ADFS via aws-azure-login, saml2aws or similar) with the cross-account-role access mode. The cross-account-role access mode also needs read access to an AWS Organization. Reports are generated as Markdown/HTML — no additional runtime required."
 metadata:
   author: jirach
   version: "1.0"
@@ -51,6 +51,8 @@ Corgiro reads configuration from TWO files:
    - `identityCenter.rolePriority` — preferred read-only roles, used to auto-pick a role per account (`identity-center-direct` mode)
    - `identityCenter.profilePrefix` — prefix for per-account CLI profiles (`<profilePrefix><accountId>`, default `corgiro-`)
    - `crossAccount.toolingAccountId` / `externalId` / `memberRoleName` / `accountFilter` (`cross-account-role` mode)
+   - `authMethod` — `identity-center` (default, assumed when absent) or `saml-external`
+   - `auth.profile` / `loginCommand` / `operatorRoleArn` (`saml-external` only)
 
 2. **Defaults** (embedded in mode references) — repo-distributed defaults for `ssoSessionName`, `memberRoleName`, `sessionDurationSeconds`, `maxParallel`, etc.
 
@@ -59,6 +61,8 @@ If `~/.corgiro/config.json` does not exist, stop and tell the user to run the `s
 ## Access Models
 
 Corgiro supports two access models, chosen during `setup-corgiro` and recorded as `accessMode` in `~/.corgiro/config.json`. Downstream modes read `~/.corgiro/state/roster.json` — which carries a `via` field per account — and resolve credentials accordingly, so they behave the same under either model.
+
+A second, independent axis — `authMethod` — records **how the operator signs in**, and is covered under [Identity Providers](#identity-providers) below.
 
 **`identity-center-direct` (use existing access)**
 
@@ -69,9 +73,24 @@ Corgiro supports two access models, chosen during `setup-corgiro` and recorded a
 
 **`cross-account-role` (org-wide setup)**
 
-- SSO produces credentials for the `CorgiroOperator` permission set in the tooling account
+- The operator's sign-in produces credentials for `CorgiroOperator` in the tooling account — an Identity Center permission set, or an IAM role reached through an external SAML IdP
 - From the tooling account, Corgiro assumes `CorgiroReadOnlyRole` in each member account, gated by an external ID
 - The tooling account is a delegated administrator for Health, Security Hub, GuardDuty, Config; coverage spans the whole org (and future accounts)
+
+## Identity Providers
+
+`authMethod` in `~/.corgiro/config.json` records how the operator obtains their base session. It is orthogonal to `accessMode`: only the base session differs, so the roster schema, per-account dispatch, and every mode's API calls are identical either way.
+
+| `authMethod` | Sign-in | Works with |
+|---|---|---|
+| `identity-center` (default) | IAM Identity Center — `aws sso login` | both access models |
+| `saml-external` | External SAML IdP — Azure AD / Entra ID, Okta, PingFederate, ADFS, via `aws-azure-login`, `saml2aws`, `gimme-aws-creds` | `cross-account-role` only |
+
+**A missing `authMethod` is treated as `identity-center`,** so config files written before this field existed keep working unchanged.
+
+`saml-external` is not available with `identity-center-direct`: that model discovers accounts through `aws sso list-accounts` / `list-account-roles`, which require an Identity Center access token. An external IdP exposes the account list only inside the SAML assertion, with no AWS API to enumerate it.
+
+**Read-only enforcement is unchanged by the choice of IdP.** `readOnlyEnforced` stays `true` under `saml-external` because the member-account boundary is `CorgiroReadOnlyRole`. What the IdP choice *does* change is attestability: under `saml-external`, which humans hold the operator role — and whether MFA was required — is decided in the external IdP and cannot be observed from AWS. See [`references/credential-resolution.md`](references/credential-resolution.md#residual-risk-saml-external).
 
 ## Safety
 
@@ -120,7 +139,7 @@ AWS resource metadata (names, tags, descriptions, user-data fields) is attacker-
 ## Shared References
 
 - [`references/cross-account-defaults.md`](references/cross-account-defaults.md) — Default configuration values used across all modes.
-- [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field (keeps all modes access-mode-agnostic); also defines the pre-flight security checks and reachability vocabulary.
+- [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field, plus operator-session dispatch on `authMethod` (keeps all modes access-mode- and IdP-agnostic); also defines the pre-flight security checks and reachability vocabulary.
 - [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, ec2-compute-review).
 - [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis and eks-eol-analysis).
 

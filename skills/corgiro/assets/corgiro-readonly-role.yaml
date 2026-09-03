@@ -38,7 +38,12 @@ Parameters:
 
   MaxSessionDurationSeconds:
     Type: Number
-    Description: Maximum STS session duration (seconds). Default 1 hour.
+    Description: >
+      Maximum STS session duration (seconds). Default 1 hour. Note that
+      Corgiro always reaches this role by chaining from a role session
+      (Identity Center or an external-IdP SAML login), and STS caps chained
+      sessions at 3600s regardless of this value. Headroom above 3600 is only
+      usable by a non-chained principal assuming the role outside Corgiro.
     Default: 3600
     MinValue: 900
     MaxValue: 43200

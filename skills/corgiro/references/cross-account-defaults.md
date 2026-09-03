@@ -12,13 +12,15 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
 | `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust |
 | `toolingAccountId` | _(from operator config)_ | Delegated admin account |
-| `sessionDurationSeconds` | `3600` | STS session duration |
+| `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values) |
 | `maxParallel` | `4` | Concurrent AssumeRole workers (hard ceiling 10 — clamp higher values) |
 | `defaultRegions` | `auto` | Regions to probe (`auto` = discover per account) |
 | `fallbackRegions` | `us-east-1, us-west-2, eu-west-1, ap-southeast-1` | Regions probed when `auto` discovery is unavailable (e.g. no payer-level Cost Explorer access) |
 | `rosterFreshnessHours` | `24` | Re-fetch roster if older than this |
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
+
+> **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
 
 ## Operator Config File (`~/.corgiro/config.json`)
 

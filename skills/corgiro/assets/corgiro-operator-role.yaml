@@ -1,0 +1,219 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Corgiro - tooling-account operator role for an external identity provider
+  (authMethod: saml-external). Deploy this ONCE in the tooling account when
+  Corgiro operators sign in through a SAML IdP (Azure AD / Entra ID, Okta,
+  PingFederate, ADFS) rather than IAM Identity Center. The role's only real
+  power is sts:AssumeRole into CorgiroReadOnlyRole in member accounts, plus the
+  org-level read APIs the delegated-admin modes need.
+
+  Not required for authMethod: identity-center - there, the equivalent identity
+  is the CorgiroOperator Identity Center permission set instead.
+
+Parameters:
+  SamlProviderArn:
+    Type: String
+    Description: >
+      ARN of the existing SAML identity provider in THIS (tooling) account, e.g.
+      arn:aws:iam::222222222222:saml-provider/AzureAD. Create it by uploading
+      your IdP's federation metadata before deploying this template; this
+      template does not create it, because the metadata document is
+      IdP-specific and rotates independently of the role.
+    AllowedPattern: "^arn:aws[a-z-]*:iam::[0-9]{12}:saml-provider/.+$"
+    ConstraintDescription: Must be an IAM SAML provider ARN in this account.
+
+  RoleName:
+    Type: String
+    Description: >
+      Name of the operator role. Must match the OperatorRoleName parameter
+      passed to the CorgiroReadOnlyRole StackSet, and auth.operatorRoleArn in
+      ~/.corgiro/config.json. A mismatch surfaces as AccessDenied on every
+      member account.
+    Default: CorgiroOperator
+    AllowedPattern: "^[\\w+=,.@-]{1,64}$"
+
+  MemberRoleName:
+    Type: String
+    Description: >
+      Name of the per-account read-only role this operator may assume. Must
+      match the StackSet's RoleName parameter and crossAccount.memberRoleName.
+    Default: CorgiroReadOnlyRole
+    AllowedPattern: "^[\\w+=,.@-]{1,64}$"
+
+  SamlAudience:
+    Type: String
+    Description: >
+      Expected SAML audience (SAML:aud). Leave at the default unless your IdP is
+      configured against a non-standard AWS sign-in endpoint.
+    Default: https://signin.aws.amazon.com/saml
+
+  MaxSessionDurationSeconds:
+    Type: Number
+    Description: >
+      Maximum duration of the operator's federated session. Corgiro then chains
+      into member accounts, and STS caps chained sessions at 3600s regardless of
+      this value.
+    Default: 3600
+    MinValue: 900
+    MaxValue: 43200
+
+Resources:
+  CorgiroOperatorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${RoleName}-Operator"
+      Description: >-
+        Least-privilege operator policy for Corgiro. Grants the cross-account
+        hop into the member read-only role, plus the org-level and
+        delegated-admin read APIs that org-wide modes call from the tooling
+        account. Deliberately does NOT include ReadOnlyAccess: the tooling
+        account is the pivot point, so its own privileges stay minimal and all
+        resource inspection happens through the member role.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # The cross-account hop. Scoped to the member role name, so this
+          # operator cannot assume arbitrary roles elsewhere in the org.
+          #
+          # No sts:ExternalId condition here on purpose: pinning the external ID
+          # in an identity policy would publish it to anyone holding
+          # iam:GetPolicyVersion in the tooling account. It belongs in
+          # ~/.corgiro/config.json at mode 600, and is enforced by the member
+          # role's trust policy where it cannot be read back.
+          - Sid: AssumeMemberReadOnlyRole
+            Effect: Allow
+            Action: sts:AssumeRole
+            Resource: !Sub "arn:${AWS::Partition}:iam::*:role/${MemberRoleName}"
+
+          # Roster construction and account metadata.
+          - Sid: ReadOrganization
+            Effect: Allow
+            Action:
+              - organizations:DescribeOrganization
+              - organizations:DescribeAccount
+              - organizations:DescribeOrganizationalUnit
+              - organizations:ListAccounts
+              - organizations:ListAccountsForParent
+              - organizations:ListChildren
+              - organizations:ListDelegatedAdministrators
+              - organizations:ListDelegatedServicesForAccount
+              - organizations:ListOrganizationalUnitsForParent
+              - organizations:ListParents
+              - organizations:ListRoots
+              - organizations:ListTagsForResource
+            Resource: "*"
+
+          # Org-wide Health (health-event-analysis) - these are only callable
+          # from the management account or a Health delegated administrator.
+          - Sid: ReadOrgHealth
+            Effect: Allow
+            Action:
+              - health:DescribeAffectedAccountsForOrganization
+              - health:DescribeAffectedEntitiesForOrganization
+              - health:DescribeEventDetailsForOrganization
+              - health:DescribeEventsForOrganization
+              - health:DescribeEventTypes
+              - health:DescribeHealthServiceStatusForOrganization
+            Resource: "*"
+
+          # Cross-account security posture services where the tooling account is
+          # the delegated administrator.
+          - Sid: ReadSecurityPosture
+            Effect: Allow
+            Action:
+              - access-analyzer:Get*
+              - access-analyzer:List*
+              - config:BatchGet*
+              - config:Describe*
+              - config:Get*
+              - config:List*
+              - config:Select*
+              - guardduty:Describe*
+              - guardduty:Get*
+              - guardduty:List*
+              - securityhub:BatchGet*
+              - securityhub:Describe*
+              - securityhub:Get*
+              - securityhub:List*
+            Resource: "*"
+
+          # Cost Explorer underpins `defaultRegions: auto` region discovery and
+          # ri-sp-coverage-analysis. Read-only; needed here when the tooling
+          # account is the Billing delegated administrator.
+          - Sid: ReadCostAndCommitments
+            Effect: Allow
+            Action:
+              - ce:Describe*
+              - ce:Get*
+              - ce:List*
+              - cost-optimization-hub:Get*
+              - cost-optimization-hub:List*
+              - savingsplans:Describe*
+              - savingsplans:List*
+            Resource: "*"
+
+          # Org-wide resource search, when trusted access is enabled for it.
+          - Sid: ReadResourceExplorer
+            Effect: Allow
+            Action:
+              - resource-explorer-2:BatchGetView
+              - resource-explorer-2:GetIndex
+              - resource-explorer-2:GetView
+              - resource-explorer-2:ListIndexes
+              - resource-explorer-2:ListViews
+              - resource-explorer-2:Search
+            Resource: "*"
+
+  CorgiroOperatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      Description: >-
+        Corgiro operator role, entered through an external SAML identity
+        provider. Assumes CorgiroReadOnlyRole in member accounts.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # WARNING - read before changing. This trust is intentionally coarse
+          # on the AWS side: it admits any principal your IdP federates through
+          # SamlProviderArn. WHICH humans that is cannot be expressed here, and
+          # is governed entirely by your IdP's app-role assignment. Neither AWS
+          # nor Corgiro can enumerate or attest to it, and the same applies to
+          # MFA. Enforce both in the IdP (e.g. Entra ID Conditional Access).
+          # See credential-resolution.md -> "Residual risk (saml-external)".
+          - Sid: AllowExternalIdpFederation
+            Effect: Allow
+            Principal:
+              Federated: !Ref SamlProviderArn
+            Action: sts:AssumeRoleWithSAML
+            Condition:
+              StringEquals:
+                SAML:aud: !Ref SamlAudience
+      ManagedPolicyArns:
+        - !Ref CorgiroOperatorPolicy
+      Tags:
+        - Key: app
+          Value: corgiro
+        - Key: purpose
+          Value: tooling-operator-saml
+        - Key: managed-by
+          Value: corgiro-cfn
+
+Outputs:
+  RoleArn:
+    Description: >
+      ARN of the operator role. Set this as auth.operatorRoleArn in
+      ~/.corgiro/config.json, and pass its role name as OperatorRoleName to the
+      CorgiroReadOnlyRole StackSet.
+    Value: !GetAtt CorgiroOperatorRole.Arn
+
+  RoleName:
+    Description: >
+      Name of the operator role - the value for the StackSet's OperatorRoleName
+      parameter.
+    Value: !Ref CorgiroOperatorRole
+
+  PolicyArn:
+    Description: ARN of the operator managed policy.
+    Value: !Ref CorgiroOperatorPolicy

@@ -57,7 +57,7 @@ Check which accounts are reachable:
 
 | Invocation                                                                      | Description                                                                                                                                                                                                                         |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`/corgiro setup-corgiro`](skills/corgiro/modes/setup-corgiro/)                 | One-time multi-account setup. Choose **Option A** (use existing Identity Center access — no org changes) or **Option B** (org-wide cross-account access — trusted access, delegated admin, StackSet). Saves state to `~/.corgiro/`. |
+| [`/corgiro setup-corgiro`](skills/corgiro/modes/setup-corgiro/)                 | One-time multi-account setup. Choose **A** (use existing Identity Center access — no org changes), **B** (org-wide cross-account access — trusted access, delegated admin, StackSet), **C** (join a deployment a colleague already provisioned — no payer access), or **D** (adopt an org-wide read-only role you already deploy — creates no new IAM role). Saves state to `~/.corgiro/`. |
 | [`/corgiro account-coverage`](skills/corgiro/modes/account-coverage/)           | Determine accounts in scope, probe reachability (SSO profile or AssumeRole), produce coverage report.                                                                                                                               |
 | [`/corgiro health-event-analysis`](skills/corgiro/modes/health-event-analysis/) | AWS Health Dashboard analysis across your org or assigned accounts — risk assessment, pattern analysis, HTML report.                                                                                                                |
 | [`/corgiro rds-eol-analysis`](skills/corgiro/modes/rds-eol-analysis/)           | RDS/Aurora end-of-support analysis — risk-prioritized report with upgrade recommendations.                                                                                                                                          |
@@ -85,15 +85,21 @@ ln -s "$PWD/skills/corgiro" ~/.kiro/skills/corgiro
 
 ## Requirements
 
-- AWS CLI v2 configured with IAM Identity Center (SSO)
+- AWS CLI v2, with operator sign-in via IAM Identity Center (SSO) or an external SAML IdP (Azure AD / Entra ID, Okta, PingFederate, ADFS — paths B, C and D only)
 - `~/.corgiro/config.json` (created by `setup-corgiro`)
 
 For **Option B** (org-wide cross-account access) additionally:
 
 - A dedicated tooling account with delegated admin for Health, Security Hub, GuardDuty, Config
 - `CorgiroReadOnlyRole` deployed to member accounts via StackSet
+- Temporary payer (management) access during setup only
 
-Run `/corgiro setup-corgiro` to set up either path. For what each path grants and how it is bounded, see [How Corgiro accesses your AWS accounts](docs/how-corgiro-accesses-your-account.md).
+For **Option D** (adopt an existing role) additionally:
+
+- An org-wide read-only role you already deploy, whose trust admits a principal in your tooling account
+- No new IAM role, no StackSet, no payer access required
+
+Run `/corgiro setup-corgiro` to set up any path. For what each path grants and how it is bounded, see [How Corgiro accesses your AWS accounts](docs/how-corgiro-accesses-your-account.md).
 
 ## Repo Layout
 
@@ -108,15 +114,20 @@ skills/
     │   └── report-format.md              ← shared report structure + theme
     ├── assets/
     │   ├── corgiro-readonly-role.yaml    ← CloudFormation template (Option B)
+    │   ├── corgiro-operator-role.yaml    ← tooling-account operator role (external SAML IdP)
+    │   ├── corgiro-dataplane-deny.json   ← canonical data-plane denylist (session policy)
     │   ├── report-theme.css              ← shared report styling
     │   ├── corgiro-logo.png              ← logo (96×96 source)
     │   └── corgiro-logo.datauri          ← logo as data URI (inlined into reports)
     └── modes/
         ├── setup-corgiro/
-        │   ├── MODE.md                   ← router: choose Option A or B
+        │   ├── MODE.md                   ← router: choose Option A, B, C or D
         │   └── references/
         │       ├── option-a-identity-center.md
-        │       └── option-b-cross-account.md
+        │       ├── option-b-cross-account.md
+        │       ├── option-b-saml-external.md
+        │       ├── option-c-join-existing.md
+        │       └── option-d-adopt-existing-role.md
         ├── account-coverage/
         │   └── MODE.md
         ├── health-event-analysis/

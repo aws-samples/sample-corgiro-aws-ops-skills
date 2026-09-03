@@ -15,7 +15,7 @@ Analyze commitment coverage (Reserved Instances + Savings Plans) across every ac
 - `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale). The roster is used to resolve the management account's credentials.
 - The **management/payer account** must be in the roster and reachable.
-  - `cross-account-role`: `CorgiroReadOnlyRole` deployed to the management account (or use tooling-account CE if that is the delegated-admin for Billing).
+  - `cross-account-role`: the member role deployed to the management account (or use tooling-account CE if that is the delegated-admin for Billing). Under `roleProvenance: corgiro-managed` this usually means it is **absent** — service-managed StackSets skip the payer. Under `customer-managed` do not assume that: the customer's own provisioning frequently does include the payer, so probe it before declaring this mode unavailable.
   - `identity-center-direct`: the operator's Identity Center permission set on the management account must include `ce:*`, `cost-optimization-hub:*`, `savingsplans:Describe*`, and the service-specific `Describe*Reserved*` actions listed in step 2. `ReadOnlyAccess` or `ViewOnlyAccess` on the payer is sufficient.
 - Cost Explorer must be enabled in the payer account's Billing console. It is enabled by default for accounts created after 2019 but can be verified in the console.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md).
@@ -144,7 +144,7 @@ Write `RI-SP-Coverage-<DATE>.md` and/or `.html` per `output_format`, then `open`
 
 | Symptom | Action |
 |---------|--------|
-| Cost Explorer `AccessDenied` on the payer | The operator's role on the management account lacks Cost Explorer permissions. Under `cross-account-role`, verify `CorgiroReadOnlyRole` includes `ce:*`. Under `identity-center-direct`, request `ReadOnlyAccess` or `ViewOnlyAccess` on the payer. |
+| Cost Explorer `AccessDenied` on the payer | The operator's role on the management account lacks Cost Explorer permissions. Under `cross-account-role`, verify the member role includes `ce:*` — and note that `ce:Get*` is within `ReadOnlyAccess`, so the session policy does not strip it. Under `identity-center-direct`, request `ReadOnlyAccess` or `ViewOnlyAccess` on the payer. |
 | Cost Explorer not enabled on the payer | Report: "Cost Explorer must be enabled on the payer in the Billing console." Stop the run. |
 | Cost Optimization Hub API `AccessDenied` / not enabled | Skip step 5's COH cross-reference gracefully. Note in report: "COH not enabled or accessible — CE recommendations only." |
 | `getSavingsPlansPurchaseRecommendation` returns empty for `DATABASE_SP` | Database SPs are newer; the recommendation engine may lack data. Note "Database SP recommendations not yet available — manual estimate would be required." Do not fabricate a number. |
@@ -152,4 +152,4 @@ Write `RI-SP-Coverage-<DATE>.md` and/or `.html` per `output_format`, then `open`
 | `describe-savings-plans` returns `AccessDenied` | Skip SP expiry analysis. Note in report. |
 | No SP / RI recommendations returned | Customer may already be well-covered or spend is too low/volatile. Report current state and note "AWS does not recommend additional commitments at this time." |
 | `ThrottlingException` | Reduce concurrency, exponential backoff (base 1s, cap 30s). All step-2/3/4/5 calls target CE / COH on the payer — parallelism ceiling of 6 concurrent calls is a reasonable default. |
-| Roster does not contain the payer account | Ask the operator to add the management account to their setup (Option A: ensure their SSO role covers it; Option B: deploy `CorgiroReadOnlyRole` to the management account) and re-run `/corgiro account-coverage`. |
+| Roster does not contain the payer account | Ask the operator to add the management account to their setup (Option A: ensure their SSO role covers it; Option B: deploy `CorgiroReadOnlyRole` to the management account as a standalone stack; Option D: ask whether their own provisioning covers the payer — it often does, and if so no change is needed) and re-run `/corgiro account-coverage`. |

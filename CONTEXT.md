@@ -9,12 +9,20 @@ The persistent record of every account Corgiro operates on, one Roster Entry per
 _Avoid_: account list, scope file, inventory
 
 **Roster Entry**:
-The per-account record inside the Roster carrying how to reach the account (`via`), what identity to use, and whether read-only is IAM-enforced.
+The per-account record inside the Roster carrying how to reach the account (`via`), what identity to use, and whether read-only and the data-plane denylist are IAM-enforced.
 _Avoid_: account record, account config
 
 **Access Mode**:
 The operator-chosen model for reaching accounts: `identity-center-direct` (existing SSO assignments, read-only is behavioral) or `cross-account-role` (assumed org-wide role, read-only is IAM-enforced).
 _Avoid_: auth mode, login type
+
+**Role Provenance**:
+Who owns the member-account role Corgiro assumes: `corgiro-managed` (Corgiro deployed it) or `customer-managed` (the organization already operated it and Corgiro adopts it). An axis orthogonal to Access Mode and to how the operator signs in; meaningful only under `cross-account-role`. Corgiro never modifies a role it does not own.
+_Avoid_: role ownership, role mode, BYO role
+
+**Session Policy**:
+The `ReadOnlyAccess` managed policy and the data-plane denylist that Corgiro passes on every `AssumeRole`, scoping the session down without altering the role. Deliberately redundant with the role's own policies so the boundary survives role drift.
+_Avoid_: inline policy (ambiguous with an IAM inline policy), scoped credentials
 
 **Coverage Snapshot**:
 The result of the most recent reachability probe across the Roster; the freshness gate downstream modes check before running.

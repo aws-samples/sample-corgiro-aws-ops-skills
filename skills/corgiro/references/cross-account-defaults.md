@@ -7,13 +7,14 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | Key | Default | Description |
 |-----|---------|-------------|
 | `authMethod` | `identity-center` | How the operator obtains the base session: `identity-center` or `saml-external`. Absent ⇒ `identity-center`. |
+| `roleProvenance` | `corgiro-managed` | Who owns the member role: `corgiro-managed` (StackSet-deployed `CorgiroReadOnlyRole`) or `customer-managed` (a pre-existing org-wide read-only role). Absent ⇒ `corgiro-managed`. |
 | `authProfile` | `corgiro` | Base CLI profile holding the tooling-account session (`saml-external`; `auth.profile`) |
 | `operatorRoleName` | `CorgiroOperator` | Operator role assumed in the tooling account (`saml-external`; must match the StackSet's `OperatorRoleName`) |
 | `ssoSessionName` | `corgiro` | IAM Identity Center session name (`identity-center` only) |
 | `profilePrefix` | `corgiro-` | Prefix for per-account CLI profiles (`<profilePrefix><accountId>`, `identity-center-direct` mode) |
 | `permissionSetName` | `CorgiroOperator` | Permission set in the tooling account |
-| `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
-| `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust |
+| `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account. Under `customer-managed` this is the customer's own role name, not a Corgiro default. |
+| `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust. May be `null` under `customer-managed` (omit the flag); a null under `corgiro-managed` is a hard stop — see [credential-resolution.md](credential-resolution.md#external-id-under-customer-managed). |
 | `toolingAccountId` | _(from operator config)_ | Delegated admin account |
 | `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values, and step **down** when the member role caps it lower) |
 | `dataPlaneDenyPolicy` | `assets/corgiro-dataplane-deny.json` | Canonical denylist passed as an inline session policy on every AssumeRole |
@@ -30,12 +31,13 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 
 ## Operator Config File (`~/.corgiro/config.json`)
 
-Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained.
+Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained; `roleProvenance` records who owns the member role.
 
 ```json
 {
   "accessMode": "cross-account-role",
   "authMethod": "identity-center",
+  "roleProvenance": "corgiro-managed",
   "ssoSession": { "sessionName": "corgiro", "startUrl": "https://ORG.awsapps.com/start", "ssoRegion": "us-east-1" },
   "identityCenter": null,
   "auth": null,
@@ -58,6 +60,7 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
 {
   "accessMode": "cross-account-role",
   "authMethod": "saml-external",
+  "roleProvenance": "corgiro-managed",
   "ssoSession": null,
   "identityCenter": null,
   "auth": {
@@ -75,6 +78,30 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
 ```
 
 `auth.loginCommand` is used only to print the correct re-login instruction on `auth_expired`; Corgiro never executes it. `auth.operatorRoleArn` must name the same role as the StackSet's `OperatorRoleName` parameter. See [credential-resolution.md](credential-resolution.md#auth-method-dispatch) for the preconditions, the invalid `identity-center-direct` combination, and the IdP-side residual risk.
+
+### `roleProvenance: "customer-managed"`
+
+Written by Path D. Only `roleProvenance`, `memberRoleName` and `externalId` differ from the blocks above — `accessMode` is still `cross-account-role`, and both `authMethod` values are valid. `externalId` is `null` here because the customer's trust policy carries no `sts:ExternalId` condition; when it does, put their value in.
+
+```json
+{
+  "accessMode": "cross-account-role",
+  "authMethod": "identity-center",
+  "roleProvenance": "customer-managed",
+  "ssoSession": { "sessionName": "corgiro", "startUrl": "https://ORG.awsapps.com/start", "ssoRegion": "us-east-1" },
+  "identityCenter": null,
+  "auth": { "profile": "corgiro", "loginCommand": null, "operatorRoleArn": null },
+  "sessionDurationSeconds": 3600,
+  "crossAccount": {
+    "toolingAccountId": "123456789012",
+    "externalId": null,
+    "memberRoleName": "AcmeOrgReadOnlyRole",
+    "accountFilter": { "include": [], "exclude": [] }
+  }
+}
+```
+
+`sessionDurationSeconds` appears explicitly because Path D discovers the member role's ceiling during its hard gate and persists whatever worked. See [credential-resolution.md](credential-resolution.md#role-provenance).
 
 ## Per-Account AssumeRole Pattern
 

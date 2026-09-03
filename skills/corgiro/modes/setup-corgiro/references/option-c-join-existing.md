@@ -1,10 +1,12 @@
 # Option C — Join an Existing Cross-Account Deployment
 
-Configures **this machine** against a `cross-account-role` deployment that someone else already provisioned. Same access model as [option-b-cross-account.md](option-b-cross-account.md) — org-wide `CorgiroReadOnlyRole` assumed from a tooling account — but nothing is deployed and no organization setting is touched.
+Configures **this machine** against a `cross-account-role` deployment that someone else already provisioned. Same access model as [option-b-cross-account.md](option-b-cross-account.md) — an org-wide read-only role assumed from a tooling account — but nothing is deployed and no organization setting is touched.
 
-Use this when a colleague has already run Option B and you are joining as an **additional operator**.
+Use this when a colleague has already run Option B **or** Option D and you are joining as an **additional operator**. Path C works with either `roleProvenance`: the member role may be Corgiro's `CorgiroReadOnlyRole` (`corgiro-managed`) or one the customer already operates (`customer-managed`). The only differences are where the role name comes from and how forgiving the external-ID lookup has to be — both handled below.
 
-> **No payer access, no org changes, no redeploy.** `CorgiroReadOnlyRole`'s trust matches a principal _pattern_ — `AWSReservedSSO_<PermissionSetName>_*` under `identity-center`, or a named role under `saml-external` (see [`../../../assets/corgiro-readonly-role.yaml`](../../../assets/corgiro-readonly-role.yaml)). Any operator holding that principal is already trusted. Adding you requires no StackSet update and no trust-policy edit.
+> **No payer access, no org changes, no redeploy — usually.** Under `corgiro-managed`, `CorgiroReadOnlyRole`'s trust matches a principal _pattern_ — `AWSReservedSSO_<PermissionSetName>_*` under `identity-center`, or a named role under `saml-external` (see [`../../../assets/corgiro-readonly-role.yaml`](../../../assets/corgiro-readonly-role.yaml)) — so any operator holding that principal is already trusted, and adding you requires no StackSet update and no trust-policy edit.
+>
+> Under `customer-managed`, that guarantee is **not Corgiro's to make.** A customer role often trusts the tooling account root, which admits you the same way; but if its trust names a specific principal, someone must add yours. Step 5's gate is what tells you which, and it is the only reliable signal — do not promise the operator a zero-change onboarding before it passes.
 
 ## What you need before starting
 
@@ -13,8 +15,9 @@ Use this when a colleague has already run Option B and you are joining as an **a
 | The `CorgiroOperator` identity assigned to you                                  | Identity Center / IdP admin  | Verified in Step 1 — **hard stop** if missing       |
 | Tooling account ID                                                              | —                            | Yes, Step 1                                         |
 | `authMethod`                                                                    | you (asked in MODE.md Step 1) | —                                                  |
-| Member role name                                                                | —                            | Yes, defaulted then proven in Step 5                |
-| External ID                                                                     | —                            | Usually, Step 4 — falls back to asking you          |
+| `roleProvenance`                                                                | operator who set Corgiro up  | **No** — asked in Step 3                            |
+| Member role name                                                                | —                            | Under `corgiro-managed`, defaulted then proven in Step 5; under `customer-managed`, **asked** |
+| External ID                                                                     | —                            | Usually, Step 4 — falls back to asking you; may legitimately be none |
 | Account scope (`accountFilter`)                                                 | operator who set Corgiro up  | **No** — see Step 6                                 |
 
 Your IdP admin needs to do exactly one thing, and it is not a Corgiro operation:
@@ -113,15 +116,22 @@ Under `saml-external`, your helper already writes the profile; just record its n
 
 > Whatever name you settle on is the **base identity every mode operates from**, and it is recorded as `auth.profile` in `config.json` (Step 5). Do not assume it is literally `corgiro` — see [`credential-resolution.md`](../../../references/credential-resolution.md#via--assume-role--accessmode-cross-account-role).
 
-## Step 3: Resolve the member role name
+## Step 3: Resolve provenance and the member role name
 
-Start from the shared default and let Step 5's hard gate prove it:
+Ask which kind of deployment you are joining. AWS holds no record of it, so it cannot be discovered:
 
-```
-MEMBER_ROLE_NAME=CorgiroReadOnlyRole        # default, per cross-account-defaults.md
-```
+> "Did the operator who set Corgiro up deploy Corgiro's own role, or point it at a read-only role your organization already had?
+>  1. Corgiro's own (`CorgiroReadOnlyRole`) / don't know → `corgiro-managed`
+>  2. An existing role of ours → `customer-managed`, and what is it called?"
 
-The role name cannot be read from AWS with an operator-only identity, so it is not discovered — it is assumed and then verified. If Step 5 fails, you will be asked for the real name there. The usual reason for a different name is the collision-avoidance rename in [option-b-cross-account.md](option-b-cross-account.md#step-25-check-for-an-existing-corgiro-deployment).
+| Answer | `ROLE_PROVENANCE` | `MEMBER_ROLE_NAME` |
+| --- | --- | --- |
+| 1 (or unknown) | `corgiro-managed` | `CorgiroReadOnlyRole` — the shared default, per [cross-account-defaults.md](../../../references/cross-account-defaults.md) |
+| 2 | `customer-managed` | Whatever they name. Do not guess. |
+
+The role name cannot be read from AWS with an operator-only identity, so under `corgiro-managed` it is assumed and then verified — Step 5's hard gate proves it, and asks for the real name if it fails. The usual reason for a different name there is the collision-avoidance rename in [option-b-cross-account.md](option-b-cross-account.md#step-25-check-for-an-existing-corgiro-deployment).
+
+"Don't know" safely maps to `corgiro-managed`: if Step 5 then fails, its candidate causes include a wrong role name and a `customer-managed` deployment, so the mistake surfaces immediately rather than silently.
 
 Resolve this **before** Step 4 — tier 1 needs the role name to look the role up.
 
@@ -137,15 +147,19 @@ The StackSet targets the whole root OU, and the tooling account is itself an org
 
 ```bash
 EXTERNAL_ID=$(aws iam get-role --role-name "$MEMBER_ROLE_NAME" --profile <baseProfile> \
-  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals."sts:ExternalId"' \
+  --query 'Role.AssumeRolePolicyDocument.Statement[].Condition.StringEquals."sts:ExternalId"' \
   --output text 2>/dev/null)
 ```
+
+> **Scan every statement, not `Statement[0]`.** Corgiro's own template emits exactly one statement, but a customer-managed role commonly has several — one per trusted consumer — and the one carrying the external ID need not be first. Indexing `[0]` would silently return nothing and send you to tier 3 for a value that was readable all along.
 
 | Result        | Meaning                                                                                             |
 | ------------- | --------------------------------------------------------------------------------------------------- |
 | A value       | Done. Continue to Step 5.                                                                            |
+| Empty, and `ROLE_PROVENANCE` is `customer-managed` | **No statement carries the condition — their trust requires no external ID.** Set `EXTERNAL_ID=null` and continue to Step 5. This is a positive answer, not a failed lookup. |
+| Empty, and `ROLE_PROVENANCE` is `corgiro-managed` | Anomalous — Corgiro's template always sets one. Treat as unreadable and fall through to tier 2. |
 | `AccessDenied` | Expected on a stock deployment — the shipped operator policy grants no `iam:*`. Fall through to tier 2. |
-| `NoSuchEntity` | The tooling account is outside the StackSet's deployment scope. Fall through to tier 2.               |
+| `NoSuchEntity` | The role does not exist in the tooling account — outside the StackSet's scope, or their deployment skips it. Fall through to tier 2. |
 
 > **One-line upgrade for zero-prompt onboarding.** Tier 1 is denied by default because neither [`../../../assets/corgiro-operator-role.yaml`](../../../assets/corgiro-operator-role.yaml) nor the permission set in [option-b-cross-account.md](option-b-cross-account.md#step-4-create-corgirooperator-permission-set-console) grants IAM read. Whoever administers the tooling account can add this once, after which every future operator onboards with no prompts at all:
 >
@@ -167,15 +181,17 @@ If you have read access to any account in this org outside Corgiro (a day-job pe
 ```bash
 aws sts get-caller-identity --profile <otherProfile> --query Account --output text
 aws iam get-role --role-name "$MEMBER_ROLE_NAME" --profile <otherProfile> \
-  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals."sts:ExternalId"' \
+  --query 'Role.AssumeRolePolicyDocument.Statement[].Condition.StringEquals."sts:ExternalId"' \
   --output text
 ```
 
-`NoSuchEntity` means that account has no Corgiro role — try another profile if they have one. `AccessDenied` means the profile lacks `iam:GetRole` there. Either way, fall through to tier 3.
+`NoSuchEntity` means that account has no such role — try another profile if they have one. `AccessDenied` means the profile lacks `iam:GetRole` there. An empty result under `customer-managed` means no external ID is required — same positive answer as tier 1. Otherwise fall through to tier 3.
 
 ### Tier 3 — ask
 
 > "I could not read the external ID from any trust policy. Please get it from the operator who set Corgiro up — they generated it during setup and should hold it in a password manager. Paste it here; it is never echoed and is written only to `~/.corgiro/config.json` at mode `600`."
+
+Under `customer-managed`, add: _"If your organization's role does not use an external ID at all, say so and I will omit it."_ Do not force a value where none exists — see [`credential-resolution.md`](../../../references/credential-resolution.md#external-id-under-customer-managed).
 
 ## Step 5: Write config, then prove it (hard gate)
 
@@ -185,6 +201,7 @@ Write `~/.corgiro/config.json`. Note `auth` is populated under **both** auth met
 {
   "accessMode": "cross-account-role",
   "authMethod": "identity-center",
+  "roleProvenance": "<ROLE_PROVENANCE>",
   "ssoSession": {
     "sessionName": "<sessionName>",
     "startUrl": "https://ORG.awsapps.com/start",
@@ -204,6 +221,8 @@ Write `~/.corgiro/config.json`. Note `auth` is populated under **both** auth met
   }
 }
 ```
+
+Write `externalId` as `null` — unquoted — when Step 4 established that the role's trust requires none. That is valid only under `customer-managed`; under `corgiro-managed` a null is a hard stop, because Corgiro's own template always requires one.
 
 Under `saml-external`, set `ssoSession` to `null` and fill `auth.loginCommand` (your helper's command) and `auth.operatorRoleArn` (from Step 1's caller ARN).
 
@@ -225,16 +244,19 @@ aws sts assume-role \
   --query 'AssumedRoleUser.Arn' --output text
 ```
 
-**`AccessDenied` here is a hard stop.** It is ambiguous across four causes, and AWS returns the same message for all of them — present all four rather than guessing:
+**`AccessDenied` here is a hard stop.** It is ambiguous across several causes, and AWS returns the same message for all of them — present them all rather than guessing:
 
 > AssumeRole failed. Any of these could be the cause:
 >
-> 1. The role is not named `CorgiroReadOnlyRole` — the operator may have renamed it to avoid a collision (see option-b Step 2.5). **What role name was deployed?**
-> 2. The external ID does not match what the StackSet was deployed with.
-> 3. `CorgiroReadOnlyRole` is not deployed to this particular account — try another account before assuming the config is wrong.
+> 1. The role is not named `<MEMBER_ROLE_NAME>` — under `corgiro-managed` the operator may have renamed it to avoid a collision (see option-b Step 2.5). **What role name was deployed?**
+> 2. The external ID does not match — or one is required and none was passed, or none is required and one was passed.
+> 3. The role is not deployed to this particular account — try another before assuming the config is wrong.
 > 4. Your operator identity is not the one the role trusts (wrong permission set name, or wrong `OperatorRoleName`).
+> 5. You are actually joining a **`customer-managed`** deployment and answered "Corgiro's own" in Step 3 — so both the role name and the trust expectations are wrong. Re-ask Step 3.
 
-Re-ask for the role name (Step 3) and/or the external ID (Step 4 tier 3) and retry. Do not proceed to Step 6 until this call succeeds.
+Re-ask for provenance and the role name (Step 3) and/or the external ID (Step 4 tier 3) and retry. Do not proceed to Step 6 until this call succeeds.
+
+Under `customer-managed`, one further cause has no Corgiro-side fix: the role's trust may simply not admit your principal, because a customer trust need not match a pattern the way Corgiro's does. If the operator confirms that, this is not something Path C can resolve — the trust statement they need is in [option-d-adopt-existing-role.md](option-d-adopt-existing-role.md#trust-case-c-what-to-send-them), and it must be applied by whoever provisions their role.
 
 ## Step 6: Account scope
 
@@ -256,13 +278,17 @@ Then build the roster from the org and save it:
 aws organizations list-accounts --profile <baseProfile> --output json
 ```
 
-Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account after applying `accountFilter`, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "<MEMBER_ROLE_NAME>"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path — the member-account privilege boundary is `CorgiroReadOnlyRole`, which is unaffected by how you joined.
+Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account after applying `accountFilter`, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "<MEMBER_ROLE_NAME>"`, `via: "assume-role"`, `dataPlaneDenyEnforced: true`, and `readOnlyEnforced` resolved per [that reference's table](../../../references/credential-resolution.md#resolving-readonlyenforced).
+
+Both enforcement fields are normally `true` on this path regardless of `roleProvenance`, because the boundary comes from the session policies Corgiro passes on every AssumeRole — not from how you joined, and not from who owns the role.
 
 ## Step 7: Detect and disclose what you cannot reach
 
 A Path C operator is **not** automatically equivalent to the operator who ran Option B. That operator had payer access; you do not. Detect this and say so rather than letting it surface as a mode failure later.
 
-Service-managed StackSets do not deploy to the management account, so `CorgiroReadOnlyRole` normally does not exist there. Option B's operator covers the payer with their own payer credentials — a Path C operator has none.
+Under `corgiro-managed`, service-managed StackSets do not deploy to the management account, so `CorgiroReadOnlyRole` normally does not exist there. Option B's operator covers the payer with their own payer credentials — a Path C operator has none.
+
+Under `customer-managed`, **do not assume the payer is missing.** The customer's own provisioning mechanism has no StackSet restriction and frequently does include the management account. Probe it like any other account before printing the block below.
 
 ```bash
 # The management account
@@ -293,4 +319,8 @@ Revocation is IdP-side and needs no AWS change at all:
 - **`identity-center`** — unassign the `CorgiroOperator` permission set from the user or group in the tooling account.
 - **`saml-external`** — remove them from the AWS app's role claim in the IdP.
 
-Nothing on the AWS side changes: no StackSet update, no trust-policy edit, no external-ID rotation. `CorgiroReadOnlyRole` trusts a principal _pattern_, and that pattern is unchanged when one person loses the identity that matches it. Have the departing operator delete `~/.corgiro/` — it holds the external ID and the account roster.
+Under `corgiro-managed`, nothing on the AWS side changes: no StackSet update, no trust-policy edit, no external-ID rotation. `CorgiroReadOnlyRole` trusts a principal _pattern_, and that pattern is unchanged when one person loses the identity that matches it.
+
+Under `customer-managed`, that holds only if their trust also matches a pattern or the tooling account root. If it names the departing operator's principal specifically, the customer must edit the trust — Corgiro cannot, and should not imply revocation is free without checking.
+
+Either way, have the departing operator delete `~/.corgiro/` — it holds the external ID and the account roster.

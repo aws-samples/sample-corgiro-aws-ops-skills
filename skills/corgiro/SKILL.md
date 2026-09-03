@@ -16,7 +16,7 @@ Single namespace command for the Corgiro AWS Cloud Operations skill collection. 
 
 | Mode                    | Invocation                       | What it does                                                                                                                                                                                                 |
 | ----------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `setup-corgiro`         | `/corgiro setup-corgiro`         | One-time multi-account setup. Three paths: (A) use your existing IAM Identity Center access, (B) provision org-wide cross-account access (StackSet + delegated admin), or (C) join a deployment a colleague already provisioned, as an additional operator with no payer access. Saves state to `~/.corgiro/`. |
+| `setup-corgiro`         | `/corgiro setup-corgiro`         | One-time multi-account setup. Four paths: (A) use your existing IAM Identity Center access, (B) provision org-wide cross-account access (StackSet + delegated admin), (C) join a deployment a colleague already provisioned, as an additional operator with no payer access, or (D) adopt an org-wide read-only role your organization already deploys, creating no new IAM role. Saves state to `~/.corgiro/`. |
 | `account-coverage`      | `/corgiro account-coverage`      | Determine the accounts in scope and probe each for reachability (SSO profile or AssumeRole, per access mode); produce a coverage report with remediation guidance.                                           |
 | `health-event-analysis` | `/corgiro health-event-analysis` | Analyze AWS Health Dashboard events across your entire Organization — open issues, scheduled changes, pattern analysis, and risk assessment.                                                                 |
 | `rds-eol-analysis`      | `/corgiro rds-eol-analysis`      | Identify RDS/Aurora instances approaching or past end-of-support across all accounts — prioritized risk report with upgrade recommendations and extended support cost estimates.                             |
@@ -52,6 +52,7 @@ Corgiro reads configuration from TWO files:
    - `identityCenter.profilePrefix` — prefix for per-account CLI profiles (`<profilePrefix><accountId>`, default `corgiro-`)
    - `crossAccount.toolingAccountId` / `externalId` / `memberRoleName` / `accountFilter` (`cross-account-role` mode)
    - `authMethod` — `identity-center` (default, assumed when absent) or `saml-external`
+   - `roleProvenance` — `corgiro-managed` (default under `cross-account-role`, assumed when absent) or `customer-managed`; `null` under `identity-center-direct`
    - `auth.profile` — the base CLI profile every mode operates from under `cross-account-role`, set on **both** auth methods; `corgiro` when absent
    - `auth.loginCommand` / `auth.operatorRoleArn` (`saml-external` only; `null` under `identity-center`)
 
@@ -63,7 +64,7 @@ If `~/.corgiro/config.json` does not exist, stop and tell the user to run the `s
 
 Corgiro supports two access models, chosen during `setup-corgiro` and recorded as `accessMode` in `~/.corgiro/config.json`. Downstream modes read `~/.corgiro/state/roster.json` — which carries a `via` field per account — and resolve credentials accordingly, so they behave the same under either model.
 
-A second, independent axis — `authMethod` — records **how the operator signs in**, and is covered under [Identity Providers](#identity-providers) below.
+Two further independent axes record **how the operator signs in** (`authMethod`, under [Identity Providers](#identity-providers)) and **who owns the member role** (`roleProvenance`, under [Role Provenance](#role-provenance)).
 
 **`identity-center-direct` (use existing access)**
 
@@ -92,6 +93,23 @@ A second, independent axis — `authMethod` — records **how the operator signs
 `saml-external` is not available with `identity-center-direct`: that model discovers accounts through `aws sso list-accounts` / `list-account-roles`, which require an Identity Center access token. An external IdP exposes the account list only inside the SAML assertion, with no AWS API to enumerate it.
 
 **Read-only enforcement is unchanged by the choice of IdP.** `readOnlyEnforced` stays `true` under `saml-external` because the member-account boundary is `CorgiroReadOnlyRole`. What the IdP choice *does* change is attestability: under `saml-external`, which humans hold the operator role — and whether MFA was required — is decided in the external IdP and cannot be observed from AWS. See [`references/credential-resolution.md`](references/credential-resolution.md#residual-risk-saml-external).
+
+## Role Provenance
+
+`roleProvenance` in `~/.corgiro/config.json` records **who owns the role Corgiro assumes** in each member account. It is orthogonal to both other axes, and applies only under `cross-account-role`.
+
+| `roleProvenance` | Member role | Provisioned by | Setup path |
+|---|---|---|---|
+| `corgiro-managed` (default) | `CorgiroReadOnlyRole` | Corgiro's service-managed StackSet | B, or C joining a B deployment |
+| `customer-managed` | A read-only role the org already operates | The customer's own mechanism | D, or C joining a D deployment |
+
+**A missing `roleProvenance` under `cross-account-role` is treated as `corgiro-managed`,** so config files written before this field existed keep working unchanged. Under `identity-center-direct` it is `null` — that model assumes no role at all, so `customer-managed` is rejected at setup.
+
+Adopting an existing role is for organizations where creating a new IAM role is the blocker — an SCP denying `iam:CreateRole`, or per-role change approval. Option B remains the default otherwise: its role's trust is narrowed to the operator identity by construction and it auto-enrolls future accounts.
+
+**Corgiro never modifies a role it does not own** — not its trust policy, not its attached policies. Under `customer-managed` the role is by definition shared with the customer's other tooling, so attaching Corgiro's data-plane Deny to it would break every other consumer. The Deny travels as a session policy on each AssumeRole instead, which is why `dataPlaneDenyEnforced` stays `true` on this path without the role carrying anything.
+
+The roster schema, per-account dispatch, and every mode's API calls are identical across provenance values. See [`references/credential-resolution.md`](references/credential-resolution.md#role-provenance).
 
 ## Safety
 

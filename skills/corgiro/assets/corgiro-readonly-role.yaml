@@ -77,6 +77,16 @@ Conditions:
   HasSamlOperator: !Not [!Equals [!Ref OperatorRoleName, ""]]
 
 Resources:
+  # MIRROR - the canonical denylist is assets/corgiro-dataplane-deny.json.
+  # Corgiro also passes that file as an inline SESSION policy on every
+  # AssumeRole (see references/credential-resolution.md -> "Session policies"),
+  # so the same actions are denied twice: once by this attached policy, and
+  # once by the session policy. That redundancy is deliberate - the session
+  # policy keeps the boundary intact even if this role drifts.
+  #
+  # The two lists MUST stay identical. CloudFormation cannot include an
+  # external file, so this is a manual mirror: change the .json first, then
+  # reflect it here. If they ever disagree, the .json is authoritative.
   CorgiroDataPlaneDenyPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:

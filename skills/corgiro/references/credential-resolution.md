@@ -229,11 +229,51 @@ aws sts assume-role \
   --role-arn arn:aws:iam::<accountId>:role/<memberRoleName> \
   --role-session-name corgiro-<operator>-<run_id> \
   --external-id <externalId> \
-  --duration-seconds 3600 \
+  --duration-seconds <sessionDurationSeconds> \
+  --policy-arns arn=arn:<partition>:iam::aws:policy/ReadOnlyAccess \
+  --policy file://<skillDir>/assets/corgiro-dataplane-deny.json \
   --profile <auth.profile>
 ```
 
 Export the returned credentials (env vars or a temporary named profile) for subsequent calls in that account.
+
+#### Session policies (always passed)
+
+The last two flags are **session policies** — they scope down the session Corgiro receives, without altering the role. Effective permissions are the *intersection* of the role's identity policies and the session policies, and an explicit Deny in either wins. So the boundary Corgiro operates within is:
+
+```
+<memberRoleName>  ∩  ReadOnlyAccess  −  DataPlaneDeny
+```
+
+Pass both on **every** AssumeRole call. They are deliberately redundant with what [`../assets/corgiro-readonly-role.yaml`](../assets/corgiro-readonly-role.yaml) already attaches to the role — redundancy is the point:
+
+- **The boundary survives role drift.** Without them, `readOnlyEnforced: true` asserts what the StackSet *should* have deployed. If anyone attaches `PowerUserAccess` to the member role or edits the StackSet, that assertion silently becomes false. With them, read-only is a property of the call Corgiro makes, not of a template it once applied.
+- **The denylist is enforced at the IAM layer for this session** even when the role itself carries no equivalent Deny.
+
+Two mechanics to respect:
+
+1. **Derive `<partition>`** from the caller ARN (`aws`, `aws-us-gov`, `aws-cn`) — do not hardcode `aws`. The template builds the same ARN with `!Sub "arn:${AWS::Partition}:..."`.
+2. **`--policy` is passed by `file://` reference, never retyped.** [`../assets/corgiro-dataplane-deny.json`](../assets/corgiro-dataplane-deny.json) is the **canonical** denylist; the inline policy in the StackSet template mirrors it. Passing the file verbatim keeps a security control from being paraphrased. Resolve `<skillDir>` to this skill's install directory (the parent of `references/`).
+
+**If `--policy-arns` is rejected** (STS requires managed session policies to exist in the same account as the role; whether AWS-managed ARNs satisfy that is not stated unambiguously in the API reference), the AssumeRole call fails outright rather than silently ignoring the flag — so this is self-verifying. Retry once with `--policy` only, and **record and surface the downgrade**:
+
+> `NOTE — managed session policy rejected in <accountId>. Falling back to the inline Deny only. Read-only is no longer enforced by Corgiro's own call in this account; it depends entirely on <memberRoleName>'s attached policies.`
+
+Never let that fallback be silent: it is the difference between a verified boundary and an inherited one.
+
+> **`PackedPolicySize` budget.** The 2,048-character plaintext limit is shared across the inline policy, the managed policy ARNs, and any session tags. The canonical deny document is ~880 characters and one ARN is ~50, leaving roughly half the budget free. Check `PackedPolicySize` in the response before adding anything to either.
+
+#### Session duration
+
+Request `sessionDurationSeconds` (default 3600, clamped to a 3600 ceiling — see [cross-account-defaults.md](cross-account-defaults.md)). The member role may cap it *below* that: a role whose `MaxSessionDuration` is 900 rejects a 3600-second request with
+
+```
+ValidationError: The requested DurationSeconds exceeds the MaxSessionDuration set for this role.
+```
+
+On that error, **step down** — 3600 → 1800 → 900 — and use the first value that succeeds. Persist the working value as `sessionDurationSeconds` in `~/.corgiro/config.json` so later runs start there instead of re-discovering it.
+
+A shorter ceiling costs throughput, never correctness: credentials are already refreshed on `ExpiredToken` (see [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern"), so a long fan-out simply re-assumes more often.
 
 #### What the external ID does and does not protect
 
@@ -262,6 +302,28 @@ Practical consequences:
 Both paths: up to `maxParallel` (default 4) concurrent workers; exponential backoff on throttling (`ThrottlingException` / `TooManyRequestsException`, base 1s, cap 30s). Persist per-account JSON before aggregating.
 
 **Hard ceiling:** `maxParallel` must never exceed **10**, regardless of operator config — clamp to 10 if a higher value is set. Combined with backoff, this keeps Corgiro from exhausting member-account API rate limits and disrupting live workloads (threat T8). For very large orgs, prefer batching accounts over raising concurrency. Optionally cap calls per account per run (e.g. ≤ 50) and stop early with a "partial — rate-limited" note rather than hammering a throttled account.
+
+## Uniform failure across all accounts
+
+When the **same** API call is denied in **every** account probed, that is one fact about the role Corgiro is using — not N per-account failures. Report it once, as a role-capability finding naming the action, and state which sections of the report are consequently unavailable:
+
+```
+ROLE CAPABILITY — <action> denied on all <n>/<n> accounts.
+The role Corgiro assumes (<roleName>) does not permit it.
+Affected: <which findings/sections cannot be produced>.
+Other sections ran normally.
+```
+
+This applies to both `via` values. Under `via: sso` the cause is a permission set narrower than the mode needs; under `via: assume-role` it is the member role's attached policies. Either way the fix is a permissions change, and repeating it per account buries that.
+
+Distinguish the two shapes before reporting:
+
+| Observation | Meaning | Report as |
+|---|---|---|
+| One action denied everywhere | Role/permission-set lacks it | One `ROLE CAPABILITY` finding |
+| Many actions denied in a few accounts | Those accounts differ | Per-account entries, as today |
+
+Two calls that commonly trip this because they are **not** plain `Describe`/`List`/`Get`: `iam:GenerateCredentialReport` (`iam-security-review`) and `cloudwatch:GetMetricData` (`ec2-compute-review`, `bedrock-model-lifecycle`). A role scoped to `Describe*`/`List*`/`Get*` only will fail both on every account.
 
 ## Reachability categories (shared vocabulary)
 

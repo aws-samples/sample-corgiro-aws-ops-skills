@@ -199,7 +199,15 @@ Two limits are inherent to this path, and setup detects and states both rather t
 
 ## What the read-only boundary actually is
 
-Under `cross-account-role`, the member-account role carries `ReadOnlyAccess` plus a customer-managed policy with an **explicit Deny**. In IAM, an explicit Deny always wins, so the Deny is the real boundary — and it exists because `ReadOnlyAccess` alone permits bulk reads of secrets and customer data.
+Under `cross-account-role`, the boundary is built **twice, independently**.
+
+The member-account role carries `ReadOnlyAccess` plus a customer-managed policy with an **explicit Deny**. In IAM, an explicit Deny always wins, so the Deny is the real boundary — and it exists because `ReadOnlyAccess` alone permits bulk reads of secrets and customer data.
+
+Corgiro then passes the *same* two constraints again as **session policies** on every `sts:AssumeRole` — `ReadOnlyAccess` as a managed session policy, and the identical Deny document inline. A session's permissions are the intersection of the role's own policies and the session policies, with an explicit Deny in either winning, so the effective boundary is:
+
+```
+CorgiroReadOnlyRole  ∩  ReadOnlyAccess  −  DataPlaneDeny
+```
 
 Denied outright, in every member account:
 
@@ -220,6 +228,23 @@ Everything Corgiro's modes actually need — the describe/list/get-configuration
 `ReadOnlyAccess` is kept as the baseline deliberately, for low maintenance — new read-only modes work without redeploying the StackSet — with the Deny layered on top to remove the sensitive data plane.
 
 The **operator role in the tooling account is separately minimal**: it does *not* carry `ReadOnlyAccess`. Its policy grants the cross-account hop (scoped to `arn:aws:iam::*:role/CorgiroReadOnlyRole`, so it cannot assume arbitrary roles), the Organizations read APIs needed to build the roster, the org-wide Health APIs, delegated-admin reads for Config / Security Hub / GuardDuty / Access Analyzer, Cost Explorer and Savings Plans reads, and Resource Explorer search. All resource inspection happens through the member role, not from the pivot.
+
+### Why the boundary is applied twice
+
+The duplication is not an oversight. The two layers fail differently, so each covers the other's blind spot:
+
+| Layer | Where it lives | What it survives | What defeats it |
+|---|---|---|---|
+| Attached to the role | Member account, deployed by the StackSet | Anything done from the laptop | Someone with IAM write in the member account attaching a broader policy, or editing the StackSet |
+| Session policy | Passed on each `AssumeRole` call | Role drift — a broadened role still yields a read-only session | Editing the skill's own copy of the deny document |
+
+Without the session policy, `readOnlyEnforced: true` is a statement about what the StackSet *should* have deployed. It becomes quietly false the moment anyone attaches `PowerUserAccess` to `CorgiroReadOnlyRole`, and nothing in Corgiro would notice. With it, read-only is a property of the call Corgiro actually makes.
+
+Neither layer alone is "the boundary", which is why the role's Deny still cannot be widened from a laptop: weakening the session policy leaves the role's attached Deny in force, and weakening the role leaves the session policy in force. Both would have to be defeated, in different places, by different people.
+
+The canonical action list is [`skills/corgiro/assets/corgiro-dataplane-deny.json`](../skills/corgiro/assets/corgiro-dataplane-deny.json); the StackSet template mirrors it, and the file is authoritative if they ever disagree.
+
+One gap worth naming: the **management account has no session policy**, because Corgiro reaches it with the operator's own credentials directly rather than by assuming a role. The payer's boundary is whatever those credentials carry.
 
 ### Prompt-injection defense
 
@@ -248,7 +273,8 @@ It is also deliberately kept *out* of the operator's identity policy: pinning it
 
 | Control | Value | Why |
 |---|---|---|
-| Member session duration | 3600 s, hard ceiling | Corgiro always reaches the member role *from a role session* — Identity Center issues an `AWSReservedSSO_*` role session, and an IdP login issues an `AssumeRoleWithSAML` session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested value. Higher configured values are clamped with a warning. |
+| Member session duration | 3600 s, hard ceiling | Corgiro always reaches the member role *from a role session* — Identity Center issues an `AWSReservedSSO_*` role session, and an IdP login issues an `AssumeRoleWithSAML` session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested value. Higher configured values are clamped with a warning; if the member role's own `MaxSessionDuration` is *lower*, Corgiro steps down until a request succeeds and remembers the working value. |
+| Session policies | `ReadOnlyAccess` + data-plane Deny, every call | Passed on every `AssumeRole` so the read-only boundary holds even if the member role drifts. See [Why the boundary is applied twice](#why-the-boundary-is-applied-twice). |
 | Recommended operator session | 1 hour max | Bounds the window in which a stolen session is usable. Configured in Identity Center or your IdP. |
 | MFA | Required on the operator sign-in | Without it, token theft is a single-factor attack. Under `saml-external` this is enforced in the IdP and Corgiro cannot attest to it. |
 | Parallel workers | default 4, **hard ceiling 10** | Higher operator values are clamped. Combined with backoff, this keeps Corgiro from exhausting member-account API rate limits and disrupting live workloads. For very large orgs, batch accounts rather than raising concurrency. |

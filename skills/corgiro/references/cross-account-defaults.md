@@ -15,7 +15,8 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
 | `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust |
 | `toolingAccountId` | _(from operator config)_ | Delegated admin account |
-| `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values) |
+| `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values, and step **down** when the member role caps it lower) |
+| `dataPlaneDenyPolicy` | `assets/corgiro-dataplane-deny.json` | Canonical denylist passed as an inline session policy on every AssumeRole |
 | `maxParallel` | `4` | Concurrent AssumeRole workers (hard ceiling 10 — clamp higher values) |
 | `defaultRegions` | `auto` | Regions to probe (`auto` = discover per account) |
 | `fallbackRegions` | `us-east-1, us-west-2, eu-west-1, ap-southeast-1` | Regions probed when `auto` discovery is unavailable (e.g. no payer-level Cost Explorer access) |
@@ -23,7 +24,9 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
 
-> **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
+> **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes the member role *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
+>
+> The ceiling is one-directional only in *configuration*. The member role's own `MaxSessionDuration` may be lower than 3600, which STS reports as a `ValidationError` rather than by silently shortening the session — so resolution also steps **down** until a request succeeds. See [credential-resolution.md](credential-resolution.md#session-duration).
 
 ## Operator Config File (`~/.corgiro/config.json`)
 
@@ -77,7 +80,7 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
 
 For services without an org-wide API:
 
-1. `sts:AssumeRole` with `RoleArn = arn:aws:iam::<account-id>:role/CorgiroReadOnlyRole`, `ExternalId`, `DurationSeconds = 3600`, `RoleSessionName = corgiro-<operator>-<run_id>` (include the operator's SSO identity for CloudTrail attribution — see [credential-resolution.md](credential-resolution.md) for how to derive and sanitize `<operator>`)
+1. `sts:AssumeRole` with `RoleArn = arn:aws:iam::<account-id>:role/<memberRoleName>`, `ExternalId`, `DurationSeconds = <sessionDurationSeconds>`, `RoleSessionName = corgiro-<operator>-<run_id>` (include the operator's SSO identity for CloudTrail attribution — see [credential-resolution.md](credential-resolution.md) for how to derive and sanitize `<operator>`), **plus the two session policies** — `PolicyArns = [arn:<partition>:iam::aws:policy/ReadOnlyAccess]` and `Policy = <assets/corgiro-dataplane-deny.json>`. These are always passed; see [credential-resolution.md](credential-resolution.md#session-policies-always-passed) for what they buy and the self-verifying fallback when the managed ARN is rejected.
 2. Cache credentials in memory keyed by account ID. Refresh on `ExpiredToken`.
 3. Run calls in parallel up to `maxParallel` workers (**hard ceiling 10** — clamp higher values). Exponential backoff on `ThrottlingException` (base 1s, cap 30s).
 4. Persist per-account JSON under `<run_dir>/per-account/<account_id>/` before aggregating.
@@ -88,5 +91,8 @@ For services without an org-wide API:
 |-------|---------------------|
 | `AccessDenied` on AssumeRole | Role missing or trust mismatch → deploy/refresh StackSet |
 | `AccessDenied` with "external ID" | External ID mismatch → check `~/.corgiro/config.json` |
+| `ValidationError` naming `DurationSeconds` | Member role's `MaxSessionDuration` is below the request → step down 3600 → 1800 → 900 and persist the working value |
+| Any error naming the managed session policy | `--policy-arns` rejected → retry with `--policy` only and **surface the downgrade** (see [credential-resolution.md](credential-resolution.md#session-policies-always-passed)); never fall back silently |
+| `PackedPolicyTooLarge` | Inline policy + managed ARNs + session tags exceed the packed limit → do not drop the Deny; reduce whatever was added on top of it |
 | Account `Status = SUSPENDED` | Skip; surface as "not eligible" |
-| Management account | Use local credentials directly for org-level APIs |
+| Management account | Use local credentials directly for org-level APIs. Note this is the one path with **no** session policy applied, because no AssumeRole occurs — the payer's boundary is whatever the operator's own credentials carry |

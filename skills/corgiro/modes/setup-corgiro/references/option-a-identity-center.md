@@ -6,7 +6,7 @@ Uses the accounts and permission sets the operator is **already assigned** in IA
 
 ## A1: Locate the cached access token
 
-`aws sso login` caches a token under `~/.aws/sso/cache/`. Find the file for this session (`sha1(sessionName).json`) or, as a fallback, the newest `*.json` containing a non-expired `accessToken`. Parse the JSON directly (no extra tooling required); if `jq` is available this one-liner works:
+`aws sso login` caches a token under `~/.aws/sso/cache/`. Find the file for this session at `sha1(sessionName).json`, or — as a fallback — the `*.json` whose `startUrl` matches `ssoSession.startUrl`. **Do not fall back to the newest file:** a laptop commonly holds tokens for several unrelated sessions, so the most recent one is often not Corgiro's (same reasoning as the pre-flight check in [`credential-resolution.md`](../../../references/credential-resolution.md)). Parse the JSON directly (no extra tooling required); if `jq` is available this one-liner works:
 
 ```bash
 TOKEN=$(jq -r 'select(.accessToken) | .accessToken' ~/.aws/sso/cache/*.json | head -1)

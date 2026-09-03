@@ -79,7 +79,17 @@ Resources:
           # in an identity policy would publish it to anyone holding
           # iam:GetPolicyVersion in the tooling account. It belongs in
           # ~/.corgiro/config.json at mode 600, and is enforced by the member
-          # role's trust policy where it cannot be read back.
+          # role's trust policy.
+          #
+          # Note the external ID IS readable from that trust policy via
+          # iam:GetRole by any principal with IAM read in a member account --
+          # setup-corgiro Path C relies on this to onboard operators without
+          # payer access. Keeping it out of this policy narrows the population
+          # that can read it; it does not make it secret. What actually bounds
+          # access is the ArnLike condition on aws:PrincipalArn plus
+          # ReadOnlyAccess + DataPlaneDeny in the member role. See
+          # ../references/credential-resolution.md -> "What the external ID
+          # does and does not protect".
           - Sid: AssumeMemberReadOnlyRole
             Effect: Allow
             Action: sts:AssumeRole

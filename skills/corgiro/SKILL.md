@@ -16,7 +16,7 @@ Single namespace command for the Corgiro AWS Cloud Operations skill collection. 
 
 | Mode                    | Invocation                       | What it does                                                                                                                                                                                                 |
 | ----------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `setup-corgiro`         | `/corgiro setup-corgiro`         | One-time multi-account setup. Two paths: (A) use your existing IAM Identity Center access, or (B) provision org-wide cross-account access (StackSet + delegated admin). Saves state to `~/.corgiro/`.        |
+| `setup-corgiro`         | `/corgiro setup-corgiro`         | One-time multi-account setup. Three paths: (A) use your existing IAM Identity Center access, (B) provision org-wide cross-account access (StackSet + delegated admin), or (C) join a deployment a colleague already provisioned, as an additional operator with no payer access. Saves state to `~/.corgiro/`. |
 | `account-coverage`      | `/corgiro account-coverage`      | Determine the accounts in scope and probe each for reachability (SSO profile or AssumeRole, per access mode); produce a coverage report with remediation guidance.                                           |
 | `health-event-analysis` | `/corgiro health-event-analysis` | Analyze AWS Health Dashboard events across your entire Organization — open issues, scheduled changes, pattern analysis, and risk assessment.                                                                 |
 | `rds-eol-analysis`      | `/corgiro rds-eol-analysis`      | Identify RDS/Aurora instances approaching or past end-of-support across all accounts — prioritized risk report with upgrade recommendations and extended support cost estimates.                             |
@@ -52,7 +52,8 @@ Corgiro reads configuration from TWO files:
    - `identityCenter.profilePrefix` — prefix for per-account CLI profiles (`<profilePrefix><accountId>`, default `corgiro-`)
    - `crossAccount.toolingAccountId` / `externalId` / `memberRoleName` / `accountFilter` (`cross-account-role` mode)
    - `authMethod` — `identity-center` (default, assumed when absent) or `saml-external`
-   - `auth.profile` / `loginCommand` / `operatorRoleArn` (`saml-external` only)
+   - `auth.profile` — the base CLI profile every mode operates from under `cross-account-role`, set on **both** auth methods; `corgiro` when absent
+   - `auth.loginCommand` / `auth.operatorRoleArn` (`saml-external` only; `null` under `identity-center`)
 
 2. **Defaults** (embedded in mode references) — repo-distributed defaults for `ssoSessionName`, `memberRoleName`, `sessionDurationSeconds`, `maxParallel`, etc.
 

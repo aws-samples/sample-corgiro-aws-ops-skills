@@ -140,10 +140,14 @@ Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist 
 
 | `authMethod` | Base session from | Base profile | Re-login command |
 |---|---|---|---|
-| `identity-center` (default) | IAM Identity Center | `<profilePrefix><accountId>` (Option A) or `corgiro` (Option B) | `aws sso login --sso-session <sessionName>` |
-| `saml-external` | External IdP via `sts:AssumeRoleWithSAML` | `auth.profile` (default `corgiro`) | `auth.loginCommand` |
+| `identity-center` (default) | IAM Identity Center | `<profilePrefix><accountId>` (Option A) or `auth.profile` (Options B and C) | `aws sso login --sso-session <sessionName>` |
+| `saml-external` | External IdP via `sts:AssumeRoleWithSAML` | `auth.profile` | `auth.loginCommand` |
 
 **A missing `authMethod` field means `identity-center`.** Existing `config.json` files predate this field and must keep working unchanged.
+
+**`auth.profile` is set under both auth methods, and a missing `auth.profile` means `corgiro`.** Under `saml-external`, `auth` also carries `loginCommand` and `operatorRoleArn`; under `identity-center` those are `null` and only `profile` is meaningful. The field exists on both paths because Option C configures machines that already have working AWS access and must not overwrite an existing `corgiro` profile — so the base profile name is no longer guaranteed to be `corgiro` and has to be recorded. Configs written before Option C existed have no `auth.profile` (or `auth: null`) and resolve to `corgiro`, exactly as they did before.
+
+Option A is the one exception: it has no single base profile, because it reaches each account through its own `<profilePrefix><accountId>` profile. `auth` stays `null` there.
 
 `saml-external` covers any IdP-federated CLI helper that writes short-lived **role-session** credentials to a named profile — `aws-azure-login`, `saml2aws`, `gimme-aws-creds`, or a `credential_process` returning a role session.
 
@@ -157,6 +161,20 @@ Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist 
 `identity-center-direct` discovers accounts through `aws sso list-accounts` / `list-account-roles`, which require an Identity Center access token. An external IdP exposes the account/role list only inside the SAML assertion, with no AWS API to enumerate it. There is nothing to fall back to, so reject the combination at setup rather than half-working:
 
 > `authMethod: saml-external requires accessMode: cross-account-role. Account discovery on identity-center-direct depends on the Identity Center token APIs, which have no external-IdP equivalent. Re-run /corgiro setup-corgiro and choose path B.`
+
+### Preconditions for `identity-center` (with `cross-account-role`)
+
+Verify before any member-account work; each failure is a hard stop. These mirror the `saml-external` checks below — the base session must actually be the Corgiro operator identity in the tooling account, or every AssumeRole fails with an unhelpful `AccessDenied`.
+
+```bash
+CALLER=$(aws sts get-caller-identity --profile "$AUTH_PROFILE" --output json)
+```
+
+1. `.Account` must equal `crossAccount.toolingAccountId`. A different account usually means `auth.profile` points at the wrong profile — likely one that pre-existed on this machine.
+2. `.Arn` must match `^arn:aws:sts::<toolingAccountId>:assumed-role/AWSReservedSSO_`. An `arn:aws:iam::…:user/` ARN means the profile holds long-lived IAM user access keys, not an Identity Center session — reject it with the same message as `saml-external` precondition 2.
+3. The permission-set name embedded in `.Arn` (the segment between `AWSReservedSSO_` and the trailing `_<hash>`) must match the `PermissionSetNamePrefix` the StackSet was deployed with — `CorgiroOperator` by default. A mismatch means the member role's `ArnLike` condition will not match your principal, and every account fails identically.
+
+> Precondition 3 cannot be verified from the member role's trust policy without IAM read, so treat a name mismatch as a *candidate* explanation when AssumeRole fails rather than something you can confirm up front. Corgiro reports it as one of the causes, not the cause.
 
 ### Preconditions for `saml-external`
 
@@ -204,18 +222,38 @@ aws <service> <command> --profile <profilePrefix><accountId> --region <region> -
 
 ### via = "assume-role" — accessMode: cross-account-role
 
-Assume `CorgiroReadOnlyRole` from the tooling-account session, gated by the external ID. The tooling-account session is the base profile written by `setup-corgiro` Option B — `corgiro` under `authMethod: identity-center` (Step 5), or `auth.profile` under `authMethod: saml-external`. Invoke it with `--profile <baseProfile>` or `export AWS_PROFILE=<baseProfile>`; the AssumeRole call itself is identical either way. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
+Assume `crossAccount.memberRoleName` from the tooling-account session, gated by the external ID. The tooling-account session is **`auth.profile`**, defaulting to `corgiro` when the field is absent — one rule for both auth methods and for Options B and C alike. Invoke it with `--profile <auth.profile>` or `export AWS_PROFILE=<auth.profile>`; the AssumeRole call itself is identical in every case. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
 
 ```bash
 aws sts assume-role \
-  --role-arn arn:aws:iam::<accountId>:role/CorgiroReadOnlyRole \
+  --role-arn arn:aws:iam::<accountId>:role/<memberRoleName> \
   --role-session-name corgiro-<operator>-<run_id> \
   --external-id <externalId> \
   --duration-seconds 3600 \
-  --profile corgiro
+  --profile <auth.profile>
 ```
 
 Export the returned credentials (env vars or a temporary named profile) for subsequent calls in that account.
+
+#### What the external ID does and does not protect
+
+The external ID is **not a secret in the sense a password is.** It appears in plaintext in the `AssumeRolePolicyDocument` of `CorgiroReadOnlyRole` in every member account, and `iam:GetRole` returns it to any principal with IAM read in that account. `setup-corgiro` Option C depends on this to onboard additional operators without payer access.
+
+What it does provide:
+
+- **Confused-deputy protection** — its AWS-intended purpose. A third party cannot induce Corgiro to assume a role in an organization you do not operate.
+- **A speed bump.** An attacker holding the operator session but not `~/.corgiro/config.json` must take one extra step to reach member accounts.
+
+What actually bounds access is elsewhere, and is not recoverable by reading a policy:
+
+- The `ArnLike` condition on `aws:PrincipalArn`, which narrows the tooling-account root principal to the specific operator identity.
+- `ReadOnlyAccess` plus the `-DataPlaneDeny` explicit Deny attached to the member role.
+
+Practical consequences:
+
+- Still **never print it** and still keep `config.json` at mode `600`. Narrowing who can read a value is worthwhile even when it is not categorically secret.
+- Do **not** treat its exposure as an incident requiring rotation on its own. Losing it does not grant access; losing the operator identity does.
+- Removing an operator therefore needs no rotation — revoke the Identity Center assignment or the IdP role claim and the principal pattern no longer matches them.
 
 > **Session name = operator identity + run id (CloudTrail attribution, threat T9).** Derive `<operator>` once per run from the tooling-account caller: `aws sts get-caller-identity --query Arn --output text`, then take the segment after the last `/` (the SSO user, e.g. `jdoe@example.com`). `RoleSessionName` must match `[\w+=,.@-]` and be ≤ 64 chars total — strip any other characters from `<operator>` and truncate it so `corgiro-<operator>-<run_id>` stays within 64. This attributes every member-account read to a specific operator instead of an anonymous `corgiro-<run_id>`.
 

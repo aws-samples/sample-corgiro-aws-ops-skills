@@ -298,7 +298,7 @@ region = us-east-1
 output = json
 ```
 
-> **`corgiro` is the base identity every mode operates from.** This is the Option B analogue of Option A's per-account `<profilePrefix><accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile corgiro` (or `export AWS_PROFILE=corgiro`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
+> **`auth.profile` is the base identity every mode operates from** - `corgiro` by default, and assumed to be `corgiro` when the field is absent. This is the Option B analogue of Option A's per-account `<profilePrefix><accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile <auth.profile>` (or `export AWS_PROFILE=<auth.profile>`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
 
 Write `~/.corgiro/config.json`:
 
@@ -322,7 +322,7 @@ Write `~/.corgiro/config.json`:
 
 > `crossAccount.externalId` must equal the `ExternalId` passed to the StackSet in Step 3, or every AssumeRole will fail.
 
-After writing `config.json`, restrict permissions immediately — it now holds the external ID (the cross-account trust secret):
+After writing `config.json`, restrict permissions immediately — it now holds the external ID. Note what that control is and is not: it provides confused-deputy protection and a speed bump, not secrecy, since it is readable from the member role's trust policy by anyone with IAM read in that account. Restricting the file still narrows who can read it. See [credential-resolution.md](../../../references/credential-resolution.md#what-the-external-id-does-and-does-not-protect).
 
 ```bash
 chmod 700 ~/.corgiro ~/.corgiro/state
@@ -349,3 +349,27 @@ aws organizations list-accounts --profile corgiro --output json
 Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "CorgiroReadOnlyRole"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
 
 Then return to setup **MODE.md Step 3 (Validate access & finalize)**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)
+
+## Adding More Operators Later
+
+Additional operators do **not** repeat this setup, and they do not need payer access. `CorgiroReadOnlyRole` trusts a principal _pattern_ - `AWSReservedSSO_CorgiroOperator_*`, or the role named by `OperatorRoleName` - so anyone holding that identity is already trusted with no StackSet update and no trust-policy edit.
+
+To onboard someone:
+
+1. Assign them the existing `CorgiroOperator` permission set in the tooling account, or add them to the AWS app's role claim in your IdP.
+2. Have them run `/corgiro setup-corgiro` and choose **Path C**, which discovers the tooling account, role name and external ID and configures only their machine. See [option-c-join-existing.md](option-c-join-existing.md).
+
+You do not have to hand them the external ID - Path C can read it from the member role's trust policy - but on a stock deployment it will ask them for it, because the operator identity is granted no IAM read. To make onboarding fully self-serve, add this once to the operator policy ([`../../../assets/corgiro-operator-role.yaml`](../../../assets/corgiro-operator-role.yaml)) or to the permission set from [Step 4](#step-4-create-corgirooperator-permission-set-console):
+
+```yaml
+- Sid: ReadOwnMemberRoleTrust
+  Effect: Allow
+  Action: iam:GetRole
+  Resource: arn:aws:iam::<TOOLING_ACCOUNT_ID>:role/CorgiroReadOnlyRole
+```
+
+Scoped to one role in one account, it grants no other IAM visibility, and what it exposes is not a secret - see [credential-resolution.md](../../../references/credential-resolution.md#what-the-external-id-does-and-does-not-protect).
+
+**To remove an operator,** unassign the permission set or drop the IdP role claim. Nothing on the AWS side changes and the external ID does not need rotating: the principal pattern simply stops matching them.
+
+> **Path C operators cannot reach the management account.** Service-managed StackSets skip the payer, so `CorgiroReadOnlyRole` is not deployed there and only an operator with their own payer credentials - you - can cover it. `ri-sp-coverage-analysis` is therefore unavailable to Path C operators unless the tooling account is a delegated administrator for a billing/cost service. To make every operator equivalent, deploy [`../../../assets/corgiro-readonly-role.yaml`](../../../assets/corgiro-readonly-role.yaml) as a standalone stack in the management account (a plain `cloudformation deploy`, since the StackSet cannot target it) with the same `ToolingAccountId` and `ExternalId`. Weigh it first - it grants payer read access to every operator identity.

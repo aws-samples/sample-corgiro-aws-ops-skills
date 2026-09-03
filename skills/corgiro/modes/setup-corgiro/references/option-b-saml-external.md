@@ -81,7 +81,7 @@ output = json
 
 `azure_default_role_arn` must name the same role as `OPERATOR_ROLE_NAME`. Setup cross-checks these and hard-stops on a mismatch, because a mismatch otherwise surfaces only as `AccessDenied` on every member account.
 
-> **`corgiro` is the base identity every mode operates from** — the `saml-external` analogue of the Identity Center path's `[profile corgiro]`. Member accounts are reached by assuming `CorgiroReadOnlyRole` *from* this profile, so there is only ever one profile. Downstream modes select it with `--profile corgiro` (or `export AWS_PROFILE=corgiro`). See [`credential-resolution.md`](../../../references/credential-resolution.md) (`via = "assume-role"`).
+> **`auth.profile` is the base identity every mode operates from** — `corgiro` by default, and the `saml-external` analogue of the Identity Center path's base profile. Member accounts are reached by assuming `CorgiroReadOnlyRole` *from* this profile, so there is only ever one profile. Downstream modes select it with `--profile <auth.profile>` (or `export AWS_PROFILE=<auth.profile>`). See [`credential-resolution.md`](../../../references/credential-resolution.md) (`via = "assume-role"`).
 
 Write `~/.corgiro/config.json`:
 

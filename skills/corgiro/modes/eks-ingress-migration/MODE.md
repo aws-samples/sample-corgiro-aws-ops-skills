@@ -12,7 +12,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session (`aws sso login --sso-session <sessionName>`).
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale) — this mode reads `~/.corgiro/state/roster.json`.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (per-account credential dispatch + pre-flight security checks) and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md) (defaults + AssumeRole pattern).
 - Reports render per [`../../references/report-format.md`](../../references/report-format.md).
@@ -30,7 +30,7 @@ Sweeps every reachable account for EKS clusters and produces an org-wide view of
 
 ### Step 1: Prerequisite check
 
-Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (`~/.corgiro/` permissions, SSO freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the SSO session is valid. Read `accessMode`.
+Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (`~/.corgiro/` permissions, operator session freshness). Confirm `~/.corgiro/config.json` and `~/.corgiro/state/roster.json` exist and the operator session is valid. Read `accessMode` and `authMethod`.
 
 ### Step 2: Determine scope
 

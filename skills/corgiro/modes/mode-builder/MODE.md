@@ -104,7 +104,7 @@ user-invocable: true
 ```
 
 **Body** (this section order is mandatory):
-1. **Prerequisites** — config, SSO session, coverage snapshot
+1. **Prerequisites** — config, operator session, coverage snapshot
 2. **Parameters** — table with defaults
 3. **Workflow** — numbered steps, each referencing the actual `aws` commands
 4. **Safety** — read-only, no secrets, confirm before mutating

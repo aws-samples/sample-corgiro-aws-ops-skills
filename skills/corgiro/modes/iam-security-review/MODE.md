@@ -13,7 +13,7 @@ IAM is a **global** service, so IAM calls run once per account (no region fan-ou
 ## Prerequisites
 
 - Coverage snapshot exists and is fresh (run `account-coverage` mode if not)
-- Valid SSO session
+- Valid operator session — see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`
 - `~/.corgiro/config.json` configured
 - Read [`references/cross-account-defaults.md`](../../references/cross-account-defaults.md) and [`references/credential-resolution.md`](../../references/credential-resolution.md) 
 - Read [`references/report-format.md`](../../references/report-format.md) (report output)
@@ -35,7 +35,7 @@ IAM is a **global** service, so IAM calls run once per account (no region fan-ou
 
 ### Step 1: Prerequisite Check
 
-Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (file permissions on `~/.corgiro/`, SSO session freshness). Confirm the coverage snapshot is fresh and `~/.corgiro/config.json` exists. Fail fast with a clear message and the one-line fix if any check fails.
+Run the pre-flight security checks in [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (file permissions on `~/.corgiro/`, operator session freshness). Confirm the coverage snapshot is fresh and `~/.corgiro/config.json` exists. Fail fast with a clear message and the one-line fix if any check fails.
 
 ### Step 2: Determine Scope
 

@@ -24,9 +24,19 @@ fi
 Cached SSO tokens in `~/.aws/sso/cache/` can be reused by anyone with workstation access. Enforce a maximum acceptable session age:
 
 ```bash
-# Find the SSO cache file for the corgiro session
-CACHE_FILE=$(ls -t ~/.aws/sso/cache/*.json 2>/dev/null | head -1)
-if [ -n "$CACHE_FILE" ]; then
+# Locate the cache file for THIS session. AWS CLI v2 keys the sso-session token
+# cache on sha1(sessionName), so derive the filename rather than guessing.
+SESSION=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.corgiro/config.json')))['ssoSession']['sessionName'])" 2>/dev/null)
+SESSION_HASH=$(printf %s "$SESSION" | { shasum -a 1 2>/dev/null || sha1sum; } | cut -d' ' -f1)
+CACHE_FILE=~/.aws/sso/cache/$SESSION_HASH.json
+
+# Fallback: match on startUrl, not modification time.
+if [ ! -f "$CACHE_FILE" ]; then
+  START_URL=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.corgiro/config.json')))['ssoSession']['startUrl'])" 2>/dev/null)
+  CACHE_FILE=$(grep -l "\"startUrl\": *\"$START_URL\"" ~/.aws/sso/cache/*.json 2>/dev/null | head -1)
+fi
+
+if [ -n "$CACHE_FILE" ] && [ -f "$CACHE_FILE" ]; then
   EXPIRES_AT=$(python3 -c "import json,sys; print(json.load(open('$CACHE_FILE')).get('expiresAt',''))" 2>/dev/null)
   if [ -n "$EXPIRES_AT" ]; then
     EXPIRES_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$EXPIRES_AT" "+%s" 2>/dev/null || date -d "$EXPIRES_AT" "+%s" 2>/dev/null)
@@ -39,6 +49,8 @@ if [ -n "$CACHE_FILE" ]; then
   fi
 fi
 ```
+
+> **Never select the cache file by modification time.** A laptop commonly holds SSO tokens for several unrelated sessions. Picking the newest file can read a *different* session's `expiresAt` and report a healthy Corgiro session when Corgiro's own token has expired — a silent false pass on a security control.
 
 **Recommended session duration:** Configure IAM Identity Center session to 1 hour maximum. This bounds the window during which a stolen token is usable.
 

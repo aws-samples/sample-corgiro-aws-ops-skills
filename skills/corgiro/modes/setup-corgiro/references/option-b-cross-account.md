@@ -287,11 +287,13 @@ Wait for `SUCCEEDED` status. If the operation reports failures, use `aws cloudfo
 
 In IAM Identity Center:
 
-1. Create a permission set named `CorgiroOperator`.
-2. Attach an inline policy with: `sts:AssumeRole` on `arn:aws:iam::*:role/CorgiroReadOnlyRole`, org read APIs, and health / security-hub / guardduty / config read APIs.
+1. Create a permission set named `$PERMISSION_SET_NAME` (default `CorgiroOperator`).
+2. Attach an inline policy with: `sts:AssumeRole` on `arn:aws:iam::*:role/$MEMBER_ROLE_NAME`, org read APIs, and health / security-hub / guardduty / config read APIs.
 3. Assign it to the user/group in the tooling account.
 
-> The permission set name must match `PermissionSetNamePrefix` in the StackSet template — the role's trust policy uses `ArnLike` on `AWSReservedSSO_CorgiroOperator_*`.
+> Use `$MEMBER_ROLE_NAME`, not a literal `CorgiroReadOnlyRole` — it differs if you took the collision-avoidance rename in [Step 2.5](#step-25-check-for-an-existing-corgiro-deployment), and Path D reuses this step with the customer's own role name. A mismatch here denies every account with no useful message.
+
+> The permission set name must match `PermissionSetNamePrefix` in the StackSet template — the role's trust policy uses `ArnLike` on `AWSReservedSSO_<name>_*`. This applies to Option B only; under Path D the customer's role has its own trust, so the permission-set name is theirs to satisfy, not Corgiro's.
 
 ## Step 5: Configure Laptop
 
@@ -319,6 +321,7 @@ Write `~/.corgiro/config.json`:
 {
   "accessMode": "cross-account-role",
   "authMethod": "identity-center",
+  "roleProvenance": "corgiro-managed",
   "ssoSession": {
     "sessionName": "corgiro",
     "startUrl": "https://ORG.awsapps.com/start",
@@ -369,7 +372,7 @@ Then build the roster from the full org and save it:
 aws organizations list-accounts --profile corgiro --output json
 ```
 
-Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "CorgiroReadOnlyRole"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
+Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "$MEMBER_ROLE_NAME"`, `via: "assume-role"`, `dataPlaneDenyEnforced: true`, and `readOnlyEnforced` resolved per [that reference's table](../../../references/credential-resolution.md#resolving-readonlyenforced) — normally `true` on this path, since the role constrains access to read-only at the IAM layer *and* the session policies Corgiro passes constrain it independently.
 
 Then return to setup **MODE.md Step 3 (Validate access & finalize)**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)
 

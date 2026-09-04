@@ -7,15 +7,17 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | Key | Default | Description |
 |-----|---------|-------------|
 | `authMethod` | `identity-center` | How the operator obtains the base session: `identity-center` or `saml-external`. Absent ⇒ `identity-center`. |
+| `roleProvenance` | `corgiro-managed` | Who owns the member role: `corgiro-managed` (StackSet-deployed `CorgiroReadOnlyRole`) or `customer-managed` (a pre-existing org-wide read-only role). Absent ⇒ `corgiro-managed`. |
 | `authProfile` | `corgiro` | Base CLI profile holding the tooling-account session (`saml-external`; `auth.profile`) |
 | `operatorRoleName` | `CorgiroOperator` | Operator role assumed in the tooling account (`saml-external`; must match the StackSet's `OperatorRoleName`) |
 | `ssoSessionName` | `corgiro` | IAM Identity Center session name (`identity-center` only) |
 | `profilePrefix` | `corgiro-` | Prefix for per-account CLI profiles (`<profilePrefix><accountId>`, `identity-center-direct` mode) |
 | `permissionSetName` | `CorgiroOperator` | Permission set in the tooling account |
-| `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account |
-| `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust |
+| `memberRoleName` | `CorgiroReadOnlyRole` | Role assumed in each member account. Under `customer-managed` this is the customer's own role name, not a Corgiro default. |
+| `externalId` | _(from operator config)_ | ExternalId for AssumeRole trust. May be `null` under `customer-managed` (omit the flag); a null under `corgiro-managed` is a hard stop — see [credential-resolution.md](credential-resolution.md#external-id-under-customer-managed). |
 | `toolingAccountId` | _(from operator config)_ | Delegated admin account |
-| `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values) |
+| `sessionDurationSeconds` | `3600` | STS session duration (hard ceiling 3600 — see below; clamp higher values, and step **down** when the member role caps it lower) |
+| `dataPlaneDenyPolicy` | `assets/corgiro-dataplane-deny.json` | Canonical denylist passed as an inline session policy on every AssumeRole |
 | `maxParallel` | `4` | Concurrent AssumeRole workers (hard ceiling 10 — clamp higher values) |
 | `defaultRegions` | `auto` | Regions to probe (`auto` = discover per account) |
 | `fallbackRegions` | `us-east-1, us-west-2, eu-west-1, ap-southeast-1` | Regions probed when `auto` discovery is unavailable (e.g. no payer-level Cost Explorer access) |
@@ -23,16 +25,19 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
 
-> **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
+> **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes the member role *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
+>
+> The ceiling is one-directional only in *configuration*. The member role's own `MaxSessionDuration` may be lower than 3600, which STS reports as a `ValidationError` rather than by silently shortening the session — so resolution also steps **down** until a request succeeds. See [credential-resolution.md](credential-resolution.md#session-duration).
 
 ## Operator Config File (`~/.corgiro/config.json`)
 
-Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained.
+Written by `setup-corgiro`. The `accessMode` field selects which block is populated; `authMethod` selects how the base session is obtained; `roleProvenance` records who owns the member role.
 
 ```json
 {
   "accessMode": "cross-account-role",
   "authMethod": "identity-center",
+  "roleProvenance": "corgiro-managed",
   "ssoSession": { "sessionName": "corgiro", "startUrl": "https://ORG.awsapps.com/start", "ssoRegion": "us-east-1" },
   "identityCenter": null,
   "auth": null,
@@ -55,6 +60,7 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
 {
   "accessMode": "cross-account-role",
   "authMethod": "saml-external",
+  "roleProvenance": "corgiro-managed",
   "ssoSession": null,
   "identityCenter": null,
   "auth": {
@@ -73,11 +79,35 @@ For `accessMode: "identity-center-direct"`, `crossAccount` is `null` and `identi
 
 `auth.loginCommand` is used only to print the correct re-login instruction on `auth_expired`; Corgiro never executes it. `auth.operatorRoleArn` must name the same role as the StackSet's `OperatorRoleName` parameter. See [credential-resolution.md](credential-resolution.md#auth-method-dispatch) for the preconditions, the invalid `identity-center-direct` combination, and the IdP-side residual risk.
 
+### `roleProvenance: "customer-managed"`
+
+Written by Path D. Only `roleProvenance`, `memberRoleName` and `externalId` differ from the blocks above — `accessMode` is still `cross-account-role`, and both `authMethod` values are valid. `externalId` is `null` here because the customer's trust policy carries no `sts:ExternalId` condition; when it does, put their value in.
+
+```json
+{
+  "accessMode": "cross-account-role",
+  "authMethod": "identity-center",
+  "roleProvenance": "customer-managed",
+  "ssoSession": { "sessionName": "corgiro", "startUrl": "https://ORG.awsapps.com/start", "ssoRegion": "us-east-1" },
+  "identityCenter": null,
+  "auth": { "profile": "corgiro", "loginCommand": null, "operatorRoleArn": null },
+  "sessionDurationSeconds": 3600,
+  "crossAccount": {
+    "toolingAccountId": "123456789012",
+    "externalId": null,
+    "memberRoleName": "AcmeOrgReadOnlyRole",
+    "accountFilter": { "include": [], "exclude": [] }
+  }
+}
+```
+
+`sessionDurationSeconds` appears explicitly because Path D discovers the member role's ceiling during its hard gate and persists whatever worked. See [credential-resolution.md](credential-resolution.md#role-provenance).
+
 ## Per-Account AssumeRole Pattern
 
 For services without an org-wide API:
 
-1. `sts:AssumeRole` with `RoleArn = arn:aws:iam::<account-id>:role/CorgiroReadOnlyRole`, `ExternalId`, `DurationSeconds = 3600`, `RoleSessionName = corgiro-<operator>-<run_id>` (include the operator's SSO identity for CloudTrail attribution — see [credential-resolution.md](credential-resolution.md) for how to derive and sanitize `<operator>`)
+1. `sts:AssumeRole` with `RoleArn = arn:aws:iam::<account-id>:role/<memberRoleName>`, `ExternalId`, `DurationSeconds = <sessionDurationSeconds>`, `RoleSessionName = corgiro-<operator>-<run_id>` (include the operator's SSO identity for CloudTrail attribution — see [credential-resolution.md](credential-resolution.md) for how to derive and sanitize `<operator>`), **plus the two session policies** — `PolicyArns = [arn:<partition>:iam::aws:policy/ReadOnlyAccess]` and `Policy = <assets/corgiro-dataplane-deny.json>`. These are always passed; see [credential-resolution.md](credential-resolution.md#session-policies-always-passed) for what they buy and the self-verifying fallback when the managed ARN is rejected.
 2. Cache credentials in memory keyed by account ID. Refresh on `ExpiredToken`.
 3. Run calls in parallel up to `maxParallel` workers (**hard ceiling 10** — clamp higher values). Exponential backoff on `ThrottlingException` (base 1s, cap 30s).
 4. Persist per-account JSON under `<run_dir>/per-account/<account_id>/` before aggregating.
@@ -88,5 +118,8 @@ For services without an org-wide API:
 |-------|---------------------|
 | `AccessDenied` on AssumeRole | Role missing or trust mismatch → deploy/refresh StackSet |
 | `AccessDenied` with "external ID" | External ID mismatch → check `~/.corgiro/config.json` |
+| `ValidationError` naming `DurationSeconds` | Member role's `MaxSessionDuration` is below the request → step down 3600 → 1800 → 900 and persist the working value |
+| Any error naming the managed session policy | `--policy-arns` rejected → retry with `--policy` only and **surface the downgrade** (see [credential-resolution.md](credential-resolution.md#session-policies-always-passed)); never fall back silently |
+| `PackedPolicyTooLarge` | Inline policy + managed ARNs + session tags exceed the packed limit → do not drop the Deny; reduce whatever was added on top of it |
 | Account `Status = SUSPENDED` | Skip; surface as "not eligible" |
-| Management account | Use local credentials directly for org-level APIs |
+| Management account | Use local credentials directly for org-level APIs. Note this is the one path with **no** session policy applied, because no AssumeRole occurs — the payer's boundary is whatever the operator's own credentials carry |

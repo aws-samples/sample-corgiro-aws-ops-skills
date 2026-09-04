@@ -2,12 +2,13 @@
 
 How any mode obtains credentials for a given account. Modes stay access-mode-agnostic by reading `~/.corgiro/state/roster.json` and dispatching on each account's `via` field. The roster, the `accessMode`, and the `authMethod` are written by `setup-corgiro`.
 
-Two independent axes:
+Three independent axes:
 
 - **`authMethod`** — how the operator obtains the base session (IAM Identity Center, or an external IdP). See [Auth Method Dispatch](#auth-method-dispatch).
+- **`roleProvenance`** — who owns the member role Corgiro assumes: Corgiro (deployed by the StackSet) or the customer (a pre-existing org-wide read-only role). See [Role Provenance](#role-provenance).
 - **`via`** (per roster entry) — how each member account is reached from that base session. See [Dispatch on `via`](#dispatch-on-via).
 
-Modes care about neither directly: they resolve credentials through this reference and issue identical API calls either way.
+Modes care about none of them directly: they resolve credentials through this reference and issue identical API calls in every combination.
 
 ## Pre-flight Security Checks
 
@@ -49,6 +50,7 @@ ACCESS_MODE=$(read_cfg "c.get('accessMode','')")
 AUTH_METHOD=$(read_cfg "c.get('authMethod') or 'identity-center'")     # absent ⇒ identity-center
 AUTH_PROFILE=$(read_cfg "(c.get('auth') or {}).get('profile') or 'corgiro'")   # absent ⇒ corgiro
 SESSION_NAME=$(read_cfg "(c.get('ssoSession') or {}).get('sessionName','')")
+ROLE_PROVENANCE=$(read_cfg "c.get('roleProvenance') or 'corgiro-managed'")   # absent ⇒ corgiro-managed
 
 # Remediation command printed on any failure below. Never executed by Corgiro.
 if [ "$AUTH_METHOD" = "saml-external" ]; then
@@ -70,13 +72,16 @@ else
 fi
 ```
 
-| Variable       | `identity-center-direct` (Option A)      | `cross-account-role` (Options B, C)          |
+| Variable       | `identity-center-direct` (Option A)      | `cross-account-role` (Options B, C, D)       |
 | -------------- | ---------------------------------------- | -------------------------------------------- |
 | `AUTH_PROFILE` | not meaningful (`auth` is `null`)        | `auth.profile`, defaulting to `corgiro`      |
 | `PROBE_PROFILE`| first roster entry's per-account profile | same as `AUTH_PROFILE`                       |
 | `LOGIN_COMMAND`| `aws sso login --sso-session <name>`     | same, or `auth.loginCommand` under `saml-external` |
+| `ROLE_PROVENANCE` | always `corgiro-managed` (no role is assumed) | `corgiro-managed` (B, C) or `customer-managed` (D) |
 
 > **`AUTH_PROFILE` and `PROBE_PROFILE` are not interchangeable.** They coincide under `cross-account-role`, where one base profile reaches everything, and diverge under `identity-center-direct`, which has no base profile at all. Probing `AUTH_PROFILE` on Option A tests a profile that was never written.
+
+> `ROLE_PROVENANCE` is resolved here but not consumed by 2a–2c: the session checks are identical whoever owns the member role. It is set at this point because 2.0 is the single place the config is read, and [Remediation by provenance](#remediation-by-provenance) branches on it when an AssumeRole failure has to be explained.
 
 #### 2a. `authMethod: identity-center` — SSO token cache
 
@@ -163,6 +168,7 @@ This section is the **single source of truth** for the shape of a Roster Entry. 
     "role": "ReadOnlyAccess",
     "via": "sso",
     "readOnlyEnforced": true,
+    "dataPlaneDenyEnforced": false,
     "profile": "corgiro-111111111111",
     "warning": "role is not in rolePriority (not a known read-only role)",
     "reachable": true,
@@ -176,18 +182,39 @@ This section is the **single source of truth** for the shape of a Roster Entry. 
 | `name` | yes | setup | Account display name |
 | `role` | yes | setup | Role/permission set used to reach the account |
 | `via` | yes | setup | Credential dispatch key: `sso` or `assume-role` |
-| `readOnlyEnforced` | yes | setup | `true` when read-only is guaranteed at the IAM layer (always for `assume-role`; for `sso` only when the role is a known read-only role). `false` entries are residual risk — surface them in summaries. |
+| `readOnlyEnforced` | yes | setup | `true` when read-only is guaranteed at the IAM layer — see the resolution table below. `false` entries are residual risk — surface them in summaries. |
+| `dataPlaneDenyEnforced` | yes | setup | `true` when the data-plane denylist is in force at the IAM layer. `true` for every `assume-role` entry (the inline session policy is always passed); `false` for `sso`, which has no AssumeRole call to attach it to. Absent ⇒ treat as `false`. |
 | `profile` | `sso` only | setup | Per-account CLI profile name (`<profilePrefix><accountId>`) |
 | `warning` | optional | setup | Residual-risk note (e.g. non-read-only role accepted by double-confirmation) |
 | `reachable` | optional | account-coverage | Result of the most recent reachability probe |
 | `lastProbedAt` | optional | account-coverage | Timestamp of that probe |
 
-Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist in the roster); `account-coverage` refreshes only the reachability fields (`reachable`, `lastProbedAt`) — under `cross-account-role` it also rebuilds scope from the org. Modes never write the roster.
+### Resolving `readOnlyEnforced`
+
+Because the [session policies](#session-policies-always-passed) are passed on every AssumeRole, read-only under `via: assume-role` is normally a property of the **call**, not of the role — so it holds regardless of `roleProvenance`:
+
+| `via` | Condition | `readOnlyEnforced` |
+|---|---|---|
+| `assume-role` | Managed `ReadOnlyAccess` session policy accepted | `true` — verified by the call itself |
+| `assume-role` | Session policy downgraded to inline-only (managed ARN rejected) | From attestation of the role's own policies; `false` when they cannot be read |
+| `sso` | Role is a known read-only role (in `rolePriority`) | `true` |
+| `sso` | Any other role | `false` |
+
+**Attestation is a fallback, not a routine step.** It is needed only in the downgrade row, where the role's own policies become the boundary again. After assuming, try:
+
+```bash
+aws iam list-attached-role-policies --role-name <memberRoleName>
+aws iam list-role-policies --role-name <memberRoleName>
+```
+
+Exactly `ReadOnlyAccess` (optionally plus a Deny) ⇒ `true`. Anything broader ⇒ `false`, and surface the specific policy as a finding, not just a flag. Denied or unreadable ⇒ `false` with a `warning`, because the field's contract is "guaranteed", and unverified is not guaranteed.
+
+Ownership: `setup-corgiro` creates entries and owns scope (which accounts exist in the roster); `account-coverage` refreshes only the reachability fields (`reachable`, `lastProbedAt`) — under `cross-account-role` it also rebuilds scope from the org. When it rebuilds scope it **carries `readOnlyEnforced`, `dataPlaneDenyEnforced` and `warning` forward** rather than recomputing or dropping them; those are setup's to own. Modes never write the roster.
 
 ## Inputs
 
 - Account ID and its Roster Entry (schema above)
-- `~/.corgiro/config.json` → `accessMode`, `authMethod`, `ssoSession`, `auth`, `crossAccount`
+- `~/.corgiro/config.json` → `accessMode`, `authMethod`, `roleProvenance`, `ssoSession`, `auth`, `crossAccount`
 
 ## Auth Method Dispatch
 
@@ -262,6 +289,57 @@ Surface this in setup summaries the same way `readOnlyEnforced: false` is surfac
 
 Note the scope of what does **not** change: `readOnlyEnforced` stays `true` on this path. The member-account privilege boundary is `CorgiroReadOnlyRole`, which is unaffected by how the operator authenticated.
 
+## Role Provenance
+
+`roleProvenance` records **who owns the member role Corgiro assumes**. It is orthogonal to both other axes.
+
+| `roleProvenance` | The member role is | Deployed by | Setup path |
+|---|---|---|---|
+| `corgiro-managed` (default) | `CorgiroReadOnlyRole` | Corgiro's service-managed StackSet | B, or C joining a B deployment |
+| `customer-managed` | A pre-existing org-wide read-only role the customer already operates | The customer's own mechanism (StackSet, CDK, Terraform, Control Tower) | D, or C joining a D deployment |
+
+**Under `cross-account-role`, a missing or null `roleProvenance` means `corgiro-managed`,** so every `config.json` written before this field existed keeps working unchanged.
+
+### Valid combinations
+
+| `accessMode` | `corgiro-managed` | `customer-managed` | `null` |
+|---|---|---|---|
+| `cross-account-role` | supported | supported | treated as `corgiro-managed` |
+| `identity-center-direct` | — | **invalid — hard stop** | the only correct value |
+
+`identity-center-direct` reaches accounts through per-account SSO profiles and never calls `sts:AssumeRole`, so there is no member role for provenance to describe. The field is `null` there, exactly as `crossAccount` is. Reject `customer-managed` at setup rather than recording a field that cannot mean anything:
+
+> `roleProvenance: customer-managed requires accessMode: cross-account-role. identity-center-direct reaches each account through its own SSO profile and assumes no role, so there is no role to adopt. Re-run /corgiro setup-corgiro and choose path D.`
+
+Both `authMethod` values work with both provenance values — the operator's sign-in and the role's ownership are unrelated questions.
+
+### What provenance does and does not change
+
+**Does not change:** the AssumeRole call, the session policies, the roster schema, parallelism, per-account dispatch, or any mode's API calls. `credential-resolution.md` resolves `crossAccount.memberRoleName` the same way either way, and no mode reads this field.
+
+**Does change** three things, all outside the hot path:
+
+1. **`externalId` may legitimately be absent** — see below.
+2. **Remediation wording** when an account is unreachable — see [Reachability categories](#reachability-categories-shared-vocabulary). There is no StackSet to redeploy under `customer-managed`.
+3. **What a `readOnlyEnforced: false` entry means**, and therefore how the residual-risk block is worded. Under `corgiro-managed` a `false` is anomalous; under `customer-managed` with a downgraded session policy it is expected.
+
+Note what is *not* on that list: the data-plane denylist. It is passed as an **inline** session policy on every AssumeRole, so `customer-managed` roles get it too — the customer's role does not need to carry it, and Corgiro must never suggest attaching it to their role. That role is shared with their other tooling by definition, and a Corgiro-authored Deny on it would break every other consumer that legitimately reads S3 objects or secrets through it.
+
+### External ID under `customer-managed`
+
+`crossAccount.externalId` may be `null` when the customer's trust policy carries no `sts:ExternalId` condition. Omit the `--external-id` flag entirely in that case — do not pass an empty string.
+
+Validity of a null depends on provenance, and getting this wrong costs an operator hours:
+
+| `externalId` | `corgiro-managed` | `customer-managed` |
+|---|---|---|
+| A value | Pass `--external-id` | Pass `--external-id` |
+| `null` / absent | **Hard stop** (see below) | Omit the flag; expected |
+
+Under `corgiro-managed` the role's trust **requires** an external ID — [`../assets/corgiro-readonly-role.yaml`](../assets/corgiro-readonly-role.yaml) pins the parameter at `MinLength: 8` and puts it in a `StringEquals` condition — so a null means the value was lost from `config.json`, not that none is needed. Omitting the flag would fail every account with a bare `AccessDenied`, which the failure table then attributes to the trust policy. Fail loudly instead:
+
+> `External ID missing from config.json, but this deployment's role REQUIRES one (roleProvenance: corgiro-managed). Recover it from your password manager, or read it from the member role's trust policy per setup-corgiro Path C Step 4. Do not treat the resulting AccessDenied as a trust-policy problem.`
+
 ## Dispatch on `via`
 
 ### via = "sso" — accessMode: identity-center-direct
@@ -277,18 +355,58 @@ aws <service> <command> --profile <profilePrefix><accountId> --region <region> -
 
 ### via = "assume-role" — accessMode: cross-account-role
 
-Assume `crossAccount.memberRoleName` from the tooling-account session, gated by the external ID. The tooling-account session is **`auth.profile`**, defaulting to `corgiro` when the field is absent — one rule for both auth methods and for Options B and C alike. Invoke it with `--profile <auth.profile>` or `export AWS_PROFILE=<auth.profile>`; the AssumeRole call itself is identical in every case. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
+Assume `crossAccount.memberRoleName` from the tooling-account session, gated by the external ID when the role's trust requires one (see [External ID under `customer-managed`](#external-id-under-customer-managed)). The tooling-account session is **`auth.profile`**, defaulting to `corgiro` when the field is absent — one rule for both auth methods and for Options B and C alike. Invoke it with `--profile <auth.profile>` or `export AWS_PROFILE=<auth.profile>`; the AssumeRole call itself is identical in every case. See [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern" for full detail and the failure table.
 
 ```bash
 aws sts assume-role \
   --role-arn arn:aws:iam::<accountId>:role/<memberRoleName> \
   --role-session-name corgiro-<operator>-<run_id> \
-  --external-id <externalId> \
-  --duration-seconds 3600 \
+  --external-id <externalId> \        # omit entirely when externalId is null
+  --duration-seconds <sessionDurationSeconds> \
+  --policy-arns arn=arn:<partition>:iam::aws:policy/ReadOnlyAccess \
+  --policy file://<skillDir>/assets/corgiro-dataplane-deny.json \
   --profile <auth.profile>
 ```
 
 Export the returned credentials (env vars or a temporary named profile) for subsequent calls in that account.
+
+#### Session policies (always passed)
+
+The last two flags are **session policies** — they scope down the session Corgiro receives, without altering the role. Effective permissions are the *intersection* of the role's identity policies and the session policies, and an explicit Deny in either wins. So the boundary Corgiro operates within is:
+
+```
+<memberRoleName>  ∩  ReadOnlyAccess  −  DataPlaneDeny
+```
+
+Pass both on **every** AssumeRole call. They are deliberately redundant with what [`../assets/corgiro-readonly-role.yaml`](../assets/corgiro-readonly-role.yaml) already attaches to the role — redundancy is the point:
+
+- **The boundary survives role drift.** Without them, `readOnlyEnforced: true` asserts what the StackSet *should* have deployed. If anyone attaches `PowerUserAccess` to the member role or edits the StackSet, that assertion silently becomes false. With them, read-only is a property of the call Corgiro makes, not of a template it once applied.
+- **The denylist is enforced at the IAM layer for this session** even when the role itself carries no equivalent Deny.
+
+Two mechanics to respect:
+
+1. **Derive `<partition>`** from the caller ARN (`aws`, `aws-us-gov`, `aws-cn`) — do not hardcode `aws`. The template builds the same ARN with `!Sub "arn:${AWS::Partition}:..."`.
+2. **`--policy` is passed by `file://` reference, never retyped.** [`../assets/corgiro-dataplane-deny.json`](../assets/corgiro-dataplane-deny.json) is the **canonical** denylist; the inline policy in the StackSet template mirrors it. Passing the file verbatim keeps a security control from being paraphrased. Resolve `<skillDir>` to this skill's install directory (the parent of `references/`).
+
+**If `--policy-arns` is rejected** (STS requires managed session policies to exist in the same account as the role; whether AWS-managed ARNs satisfy that is not stated unambiguously in the API reference), the AssumeRole call fails outright rather than silently ignoring the flag — so this is self-verifying. Retry once with `--policy` only, and **record and surface the downgrade**:
+
+> `NOTE — managed session policy rejected in <accountId>. Falling back to the inline Deny only. Read-only is no longer enforced by Corgiro's own call in this account; it depends entirely on <memberRoleName>'s attached policies.`
+
+Never let that fallback be silent: it is the difference between a verified boundary and an inherited one.
+
+> **`PackedPolicySize` budget.** The 2,048-character plaintext limit is shared across the inline policy, the managed policy ARNs, and any session tags. The canonical deny document is ~880 characters and one ARN is ~50, leaving roughly half the budget free. Check `PackedPolicySize` in the response before adding anything to either.
+
+#### Session duration
+
+Request `sessionDurationSeconds` (default 3600, clamped to a 3600 ceiling — see [cross-account-defaults.md](cross-account-defaults.md)). The member role may cap it *below* that: a role whose `MaxSessionDuration` is 900 rejects a 3600-second request with
+
+```
+ValidationError: The requested DurationSeconds exceeds the MaxSessionDuration set for this role.
+```
+
+On that error, **step down** — 3600 → 1800 → 900 — and use the first value that succeeds. Persist the working value as `sessionDurationSeconds` in `~/.corgiro/config.json` so later runs start there instead of re-discovering it.
+
+A shorter ceiling costs throughput, never correctness: credentials are already refreshed on `ExpiredToken` (see [cross-account-defaults.md](cross-account-defaults.md) → "Per-Account AssumeRole Pattern"), so a long fan-out simply re-assumes more often.
 
 #### What the external ID does and does not protect
 
@@ -318,6 +436,28 @@ Both paths: up to `maxParallel` (default 4) concurrent workers; exponential back
 
 **Hard ceiling:** `maxParallel` must never exceed **10**, regardless of operator config — clamp to 10 if a higher value is set. Combined with backoff, this keeps Corgiro from exhausting member-account API rate limits and disrupting live workloads (threat T8). For very large orgs, prefer batching accounts over raising concurrency. Optionally cap calls per account per run (e.g. ≤ 50) and stop early with a "partial — rate-limited" note rather than hammering a throttled account.
 
+## Uniform failure across all accounts
+
+When the **same** API call is denied in **every** account probed, that is one fact about the role Corgiro is using — not N per-account failures. Report it once, as a role-capability finding naming the action, and state which sections of the report are consequently unavailable:
+
+```
+ROLE CAPABILITY — <action> denied on all <n>/<n> accounts.
+The role Corgiro assumes (<roleName>) does not permit it.
+Affected: <which findings/sections cannot be produced>.
+Other sections ran normally.
+```
+
+This applies to both `via` values. Under `via: sso` the cause is a permission set narrower than the mode needs; under `via: assume-role` it is the member role's attached policies. Either way the fix is a permissions change, and repeating it per account buries that.
+
+Distinguish the two shapes before reporting:
+
+| Observation | Meaning | Report as |
+|---|---|---|
+| One action denied everywhere | Role/permission-set lacks it | One `ROLE CAPABILITY` finding |
+| Many actions denied in a few accounts | Those accounts differ | Per-account entries, as today |
+
+Two calls that commonly trip this because they are **not** plain `Describe`/`List`/`Get`: `iam:GenerateCredentialReport` (`iam-security-review`) and `cloudwatch:GetMetricData` (`ec2-compute-review`, `bedrock-model-lifecycle`). A role scoped to `Describe*`/`List*`/`Get*` only will fail both on every account.
+
 ## Reachability categories (shared vocabulary)
 
 | Category         | via = sso                                  | via = assume-role                                 |
@@ -325,11 +465,22 @@ Both paths: up to `maxParallel` (default 4) concurrent workers; exponential back
 | `reachable`      | profile resolves, `get-caller-identity` OK | AssumeRole OK                                     |
 | `auth_expired`   | SSO token expired → `aws sso login`        | tooling session expired → re-login (see below)    |
 | `not_in_scope`   | account no longer assigned to the user     | —                                                 |
-| `role_missing`   | —                                          | `CorgiroReadOnlyRole` absent → redeploy StackSet  |
-| `trust_mismatch` | —                                          | external ID **or operator role ARN** mismatch → check `config.json` and the StackSet's `OperatorRoleName` |
+| `role_missing`   | —                                          | `<memberRoleName>` absent → see [remediation by provenance](#remediation-by-provenance) |
+| `trust_mismatch` | —                                          | external ID **or operator role ARN** mismatch → see [remediation by provenance](#remediation-by-provenance) |
 | `suspended`      | account suspended                          | account suspended                                 |
 | `management`     | —                                          | management account (use local creds for org APIs) |
 
 The re-login command for `auth_expired` depends on `authMethod`: `aws sso login --sso-session <sessionName>` for `identity-center`, or `auth.loginCommand` for `saml-external`. Report the one matching the operator's config — never both.
 
 Under `saml-external`, `trust_mismatch` has a second cause beyond the external ID: the operator role ARN not matching the `OperatorRoleName` the StackSet was deployed with. Both produce an identical `AccessDenied` on AssumeRole, so check the operator role ARN as well before concluding the external ID is wrong.
+
+### Remediation by provenance
+
+The **categories above are observations** and do not vary by `roleProvenance` — AWS returns one indistinguishable `AccessDenied` whether the role is absent, the trust rejects the caller, or the external ID is wrong. Only the fix differs:
+
+| Category | `corgiro-managed` | `customer-managed` |
+|---|---|---|
+| `role_missing` | `CorgiroReadOnlyRole` absent → deploy or refresh the StackSet | `<memberRoleName>` is not present in this account. **Expected** if the customer's own deployment does not cover the whole org — check their provisioning mechanism, not Corgiro's config. Not an error state on its own. |
+| `trust_mismatch` | External ID or operator role ARN mismatch → check `config.json` and the StackSet's `OperatorRoleName` | The role's trust does not admit the operator principal, or the external ID differs. Corgiro cannot edit a role it does not own — surface the required trust statement and stop (see [option-d-adopt-existing-role.md](../modes/setup-corgiro/references/option-d-adopt-existing-role.md)). |
+
+One consequence for reporting: under `customer-managed`, a scatter of `role_missing` accounts is a **coverage gap**, not a misconfiguration. Badge it `badge--amber` and describe it as partial coverage; reserve `badge--red` for the case where *every* account fails, which does indicate config.

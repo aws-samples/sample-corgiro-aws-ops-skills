@@ -1,6 +1,6 @@
 ---
 name: account-coverage
-description: "Determine which accounts are in scope and probe each one to confirm Corgiro can reach it. Adapts to the configured access mode: verifies SSO profiles (identity-center-direct) or assumes CorgiroReadOnlyRole (cross-account-role). Produces a coverage report showing which accounts are reachable and which need remediation. Use when checking account coverage, verifying cross-account access, onboarding new accounts, or before running multi-account operations."
+description: "Determine which accounts are in scope and probe each one to confirm Corgiro can reach it. Adapts to the configured access mode: verifies SSO profiles (identity-center-direct) or assumes the configured member role (cross-account-role). Produces a coverage report showing which accounts are reachable and which need remediation. Use when checking account coverage, verifying cross-account access, onboarding new accounts, or before running multi-account operations."
 user-invocable: true
 ---
 
@@ -62,7 +62,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 
 - Summary counts per category (KPI cards)
 - **Table of accounts you have access to** (reachable): account ID, name, role, `via`
-- Table of non-reachable accounts with remediation (per the credential-resolution failure table)
+- Table of non-reachable accounts with remediation (per the credential-resolution failure table, using the [row matching `roleProvenance`](../../references/credential-resolution.md#remediation-by-provenance) — there is no StackSet to redeploy under `customer-managed`)
 - New account alerts
 
 Reachability → badges: reachable `badge--green`; `auth_expired` / `role_missing` / `trust_mismatch` `badge--red`; warnings `badge--amber`; `management` / `suspended` `badge--zinc`.
@@ -71,7 +71,7 @@ Update snapshots:
 
 - `~/.corgiro/state/coverage.json` — reachability result (both modes)
 - `~/.corgiro/state/roster.json` — entries follow the [Roster Entry Schema](../../references/credential-resolution.md#roster-entry-schema-authoritative):
-  - **cross-account-role**: rebuild scope from the discovered org accounts (each entry `via: "assume-role"`)
+  - **cross-account-role**: rebuild scope from the discovered org accounts (each entry `via: "assume-role"`). Carry `readOnlyEnforced`, `dataPlaneDenyEnforced` and `warning` forward from the previous snapshot for accounts that already had them — those fields are `setup-corgiro`'s to own, and recomputing or dropping them here would erase a residual-risk disclosure.
   - **identity-center-direct**: scope owned by `setup-corgiro` — refresh the reachability fields (`reachable`, `lastProbedAt`) only; do not add/remove accounts (re-run setup to change scope)
 
 ## Output

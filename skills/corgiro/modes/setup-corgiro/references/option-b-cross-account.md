@@ -218,12 +218,25 @@ aws cloudformation delete-stack-set --stack-set-name <OldStackSetName> \
 
 > ⚠️ Mutating step - confirm with the operator before running.
 
+### Resolve the template path first
+
+`--template-body` needs a path that resolves from **the shell's working directory**, which is wherever the operator invoked Corgiro — not the skill directory. Set `CORGIRO_SKILL_DIR` to the absolute path of the directory containing `SKILL.md` (the same directory these references were loaded from) and build the template path from it:
+
+```bash
+CORGIRO_SKILL_DIR=<absolute path to the directory containing SKILL.md>
+TEMPLATE=$CORGIRO_SKILL_DIR/assets/corgiro-readonly-role.yaml
+
+[ -f "$TEMPLATE" ] || { echo "Template not found at $TEMPLATE"; exit 1; }
+```
+
+Common install locations, if you need to find it: `~/.kiro/skills/corgiro`, `~/.claude/skills/corgiro`, or `<repo>/skills/corgiro` for a local clone. Verify with `ls "$CORGIRO_SKILL_DIR/SKILL.md"` before deploying — a bare relative `file://assets/...` silently resolves against the wrong directory and fails with a misleading template error.
+
 **`management` mode** - run from the payer:
 
 ```bash
 aws cloudformation create-stack-set \
   --stack-set-name CorgiroReadOnlyRole \
-  --template-body file://assets/corgiro-readonly-role.yaml \
+  --template-body "file://$TEMPLATE" \
   --parameters ParameterKey=ToolingAccountId,ParameterValue=$TOOLING_ACCOUNT_ID \
                ParameterKey=ExternalId,ParameterValue=$EXTERNAL_ID \
   --permission-model SERVICE_MANAGED \
@@ -244,7 +257,7 @@ aws cloudformation create-stack-instances \
 ```bash
 aws cloudformation create-stack-set \
   --stack-set-name CorgiroReadOnlyRole \
-  --template-body file://assets/corgiro-readonly-role.yaml \
+  --template-body "file://$TEMPLATE" \
   --parameters ParameterKey=ToolingAccountId,ParameterValue=$TOOLING_ACCOUNT_ID \
                ParameterKey=ExternalId,ParameterValue=$EXTERNAL_ID \
   --permission-model SERVICE_MANAGED \
@@ -298,19 +311,25 @@ region = us-east-1
 output = json
 ```
 
-> **`corgiro` is the base identity every mode operates from.** This is the Option B analogue of Option A's per-account `<profilePrefix><accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile corgiro` (or `export AWS_PROFILE=corgiro`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
+> **`auth.profile` is the base identity every mode operates from** - `corgiro` by default, and assumed to be `corgiro` when the field is absent. This is the Option B analogue of Option A's per-account `<profilePrefix><accountId>` profiles - but Option B has only **one** profile, because member accounts are reached by assuming `CorgiroReadOnlyRole` _from_ the tooling account, not by direct SSO. Downstream modes select this base identity with `--profile <auth.profile>` (or `export AWS_PROFILE=<auth.profile>`), then chain into each member account via AssumeRole. See [credential-resolution.md](../../../references/credential-resolution.md) (`via = "assume-role"`).
 
 Write `~/.corgiro/config.json`:
 
 ```json
 {
   "accessMode": "cross-account-role",
+  "authMethod": "identity-center",
   "ssoSession": {
     "sessionName": "corgiro",
     "startUrl": "https://ORG.awsapps.com/start",
     "ssoRegion": "us-east-1"
   },
   "identityCenter": null,
+  "auth": {
+    "profile": "corgiro",
+    "loginCommand": null,
+    "operatorRoleArn": null
+  },
   "crossAccount": {
     "toolingAccountId": "<TOOLING_ACCOUNT_ID>",
     "externalId": "<EXTERNAL_ID>",
@@ -320,9 +339,13 @@ Write `~/.corgiro/config.json`:
 }
 ```
 
+> **Write `authMethod` explicitly — it is the answer collected in MODE.md Step 1, not a constant.** If the operator answered *external SAML IdP* there, you are on the wrong file: stop and use [option-b-saml-external.md](option-b-saml-external.md) Steps 4–6 instead, which writes `authMethod: "saml-external"`, `ssoSession: null`, and a populated `auth.loginCommand` / `auth.operatorRoleArn`. Emitting this Identity Center block for a SAML operator produces a config that passes every "absent implies default" rule and then fails on the first member account with an unexplained `AccessDenied`.
+
+> **`auth.profile` records the base profile name.** Set it to the profile you actually wrote above — `corgiro` on a stock setup. It is written out rather than left implicit so that `account-coverage` and every mode can select the base identity with `--profile <auth.profile>` without assuming a literal name; Option C depends on this when `corgiro` was already taken on the operator's machine. `loginCommand` and `operatorRoleArn` are `null` under `identity-center`.
+
 > `crossAccount.externalId` must equal the `ExternalId` passed to the StackSet in Step 3, or every AssumeRole will fail.
 
-After writing `config.json`, restrict permissions immediately — it now holds the external ID (the cross-account trust secret):
+After writing `config.json`, restrict permissions immediately — it now holds the external ID. Note what that control is and is not: it provides confused-deputy protection and a speed bump, not secrecy, since it is readable from the member role's trust policy by anyone with IAM read in that account. Restricting the file still narrows who can read it. See [credential-resolution.md](../../../references/credential-resolution.md#what-the-external-id-does-and-does-not-protect).
 
 ```bash
 chmod 700 ~/.corgiro ~/.corgiro/state
@@ -349,3 +372,27 @@ aws organizations list-accounts --profile corgiro --output json
 Write `~/.corgiro/state/roster.json` with one Roster Entry per ACTIVE account, per the authoritative schema in [credential-resolution.md](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `role: "CorgiroReadOnlyRole"`, `via: "assume-role"`, `readOnlyEnforced: true`. `readOnlyEnforced` is always `true` on this path -- `CorgiroReadOnlyRole` constrains access to read-only at the IAM layer.
 
 Then return to setup **MODE.md Step 3 (Validate access & finalize)**, which validates `CorgiroReadOnlyRole` assumption across all accounts and writes the coverage snapshot. (Re-run `/corgiro account-coverage` anytime to re-validate or pick up new accounts.)
+
+## Adding More Operators Later
+
+Additional operators do **not** repeat this setup, and they do not need payer access. `CorgiroReadOnlyRole` trusts a principal _pattern_ - `AWSReservedSSO_CorgiroOperator_*`, or the role named by `OperatorRoleName` - so anyone holding that identity is already trusted with no StackSet update and no trust-policy edit.
+
+To onboard someone:
+
+1. Assign them the existing `CorgiroOperator` permission set in the tooling account, or add them to the AWS app's role claim in your IdP.
+2. Have them run `/corgiro setup-corgiro` and choose **Path C**, which discovers the tooling account, role name and external ID and configures only their machine. See [option-c-join-existing.md](option-c-join-existing.md).
+
+You do not have to hand them the external ID - Path C can read it from the member role's trust policy - but on a stock deployment it will ask them for it, because the operator identity is granted no IAM read. To make onboarding fully self-serve, add this once to the operator policy ([`../../../assets/corgiro-operator-role.yaml`](../../../assets/corgiro-operator-role.yaml)) or to the permission set from [Step 4](#step-4-create-corgirooperator-permission-set-console):
+
+```yaml
+- Sid: ReadOwnMemberRoleTrust
+  Effect: Allow
+  Action: iam:GetRole
+  Resource: arn:aws:iam::<TOOLING_ACCOUNT_ID>:role/CorgiroReadOnlyRole
+```
+
+Scoped to one role in one account, it grants no other IAM visibility, and what it exposes is not a secret - see [credential-resolution.md](../../../references/credential-resolution.md#what-the-external-id-does-and-does-not-protect).
+
+**To remove an operator,** unassign the permission set or drop the IdP role claim. Nothing on the AWS side changes and the external ID does not need rotating: the principal pattern simply stops matching them.
+
+> **Path C operators cannot reach the management account.** Service-managed StackSets skip the payer, so `CorgiroReadOnlyRole` is not deployed there and only an operator with their own payer credentials - you - can cover it. `ri-sp-coverage-analysis` is therefore unavailable to Path C operators unless the tooling account is a delegated administrator for a billing/cost service. To make every operator equivalent, deploy [`../../../assets/corgiro-readonly-role.yaml`](../../../assets/corgiro-readonly-role.yaml) as a standalone stack in the management account (a plain `cloudformation deploy`, since the StackSet cannot target it) with the same `ToolingAccountId` and `ExternalId`. Weigh it first - it grants payer read access to every operator identity.

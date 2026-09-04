@@ -10,7 +10,7 @@ Assess EC2 fleet health across every reachable account in the organization. Eval
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session.
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md) and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md).
 
@@ -28,7 +28,7 @@ Assess EC2 fleet health across every reachable account in the organization. Eval
 
 ### Step 1: Prerequisite Check
 
-Confirm coverage snapshot is fresh and SSO session is valid. Read `accessMode` from `~/.corgiro/config.json`.
+Confirm coverage snapshot is fresh and the operator session is valid. Read `accessMode` and `authMethod` from `~/.corgiro/config.json`.
 
 ### Step 2: Determine Scope
 

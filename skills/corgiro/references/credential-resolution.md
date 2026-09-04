@@ -31,20 +31,70 @@ fi
 
 Cached operator credentials can be reused by anyone with workstation access. Enforce a maximum acceptable session age, then confirm the session is actually still valid.
 
-Where the expiry lives depends on `authMethod` (see [Auth Method Dispatch](#auth-method-dispatch)), so run **2a or 2b**, then **2c** in all cases.
+Where the expiry lives depends on `authMethod` (see [Auth Method Dispatch](#auth-method-dispatch)). Run **2.0** first — it resolves the variables the later steps use — then **2a or 2b**, then **2c** in all cases.
+
+#### 2.0. All paths — resolve the session variables
+
+Every later step depends on these four values, and each is path-dependent. Resolve them once, here, applying the documented "absent implies default" rules. Do not skip this step: `2a`, `2b`, and `2c` all reference variables it sets, and an unset `PROBE_PROFILE` makes `2c` fail closed on a valid session.
+
+```bash
+CFG=~/.corgiro/config.json
+
+read_cfg() {  # read_cfg <python-expr over `c`> — never raises on null/missing blocks
+  python3 -c "import json,os
+c = json.load(open(os.path.expanduser('$CFG')))
+print($1)" 2>/dev/null
+}
+
+ACCESS_MODE=$(read_cfg "c.get('accessMode','')")
+AUTH_METHOD=$(read_cfg "c.get('authMethod') or 'identity-center'")     # absent ⇒ identity-center
+AUTH_PROFILE=$(read_cfg "(c.get('auth') or {}).get('profile') or 'corgiro'")   # absent ⇒ corgiro
+SESSION_NAME=$(read_cfg "(c.get('ssoSession') or {}).get('sessionName','')")
+ROLE_PROVENANCE=$(read_cfg "c.get('roleProvenance') or 'corgiro-managed'")   # absent ⇒ corgiro-managed
+
+# Remediation command printed on any failure below. Never executed by Corgiro.
+if [ "$AUTH_METHOD" = "saml-external" ]; then
+  LOGIN_COMMAND=$(read_cfg "(c.get('auth') or {}).get('loginCommand') or ''")
+  [ -n "$LOGIN_COMMAND" ] || LOGIN_COMMAND="your IdP helper's login command (auth.loginCommand is unset in $CFG)"
+else
+  LOGIN_COMMAND="aws sso login --sso-session $SESSION_NAME"
+fi
+
+# Which profile 2c probes. Option A (identity-center-direct) has NO base profile
+# -- it reaches each account through its own <profilePrefix><accountId> profile,
+# and `auth` is null there -- so probe the first roster entry instead.
+if [ "$ACCESS_MODE" = "identity-center-direct" ]; then
+  PROBE_PROFILE=$(python3 -c "import json,os
+r = json.load(open(os.path.expanduser('~/.corgiro/state/roster.json')))
+print(next((e['profile'] for e in r.values() if e.get('profile')), ''))" 2>/dev/null)
+else
+  PROBE_PROFILE=$AUTH_PROFILE
+fi
+```
+
+| Variable       | `identity-center-direct` (Option A)      | `cross-account-role` (Options B, C, D)       |
+| -------------- | ---------------------------------------- | -------------------------------------------- |
+| `AUTH_PROFILE` | not meaningful (`auth` is `null`)        | `auth.profile`, defaulting to `corgiro`      |
+| `PROBE_PROFILE`| first roster entry's per-account profile | same as `AUTH_PROFILE`                       |
+| `LOGIN_COMMAND`| `aws sso login --sso-session <name>`     | same, or `auth.loginCommand` under `saml-external` |
+| `ROLE_PROVENANCE` | always `corgiro-managed` (no role is assumed) | `corgiro-managed` (B, C) or `customer-managed` (D) |
+
+> **`AUTH_PROFILE` and `PROBE_PROFILE` are not interchangeable.** They coincide under `cross-account-role`, where one base profile reaches everything, and diverge under `identity-center-direct`, which has no base profile at all. Probing `AUTH_PROFILE` on Option A tests a profile that was never written.
+
+> `ROLE_PROVENANCE` is resolved here but not consumed by 2a–2c: the session checks are identical whoever owns the member role. It is set at this point because 2.0 is the single place the config is read, and [Remediation by provenance](#remediation-by-provenance) branches on it when an AssumeRole failure has to be explained.
 
 #### 2a. `authMethod: identity-center` — SSO token cache
 
 ```bash
 # Locate the cache file for THIS session. AWS CLI v2 keys the sso-session token
 # cache on sha1(sessionName), so derive the filename rather than guessing.
-SESSION=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.corgiro/config.json')))['ssoSession']['sessionName'])" 2>/dev/null)
-SESSION_HASH=$(printf %s "$SESSION" | { shasum -a 1 2>/dev/null || sha1sum; } | cut -d' ' -f1)
+# SESSION_NAME and LOGIN_COMMAND come from 2.0 -- do not re-derive them here.
+SESSION_HASH=$(printf %s "$SESSION_NAME" | { shasum -a 1 2>/dev/null || sha1sum; } | cut -d' ' -f1)
 CACHE_FILE=~/.aws/sso/cache/$SESSION_HASH.json
 
 # Fallback: match on startUrl, not modification time.
 if [ ! -f "$CACHE_FILE" ]; then
-  START_URL=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.corgiro/config.json')))['ssoSession']['startUrl'])" 2>/dev/null)
+  START_URL=$(read_cfg "(c.get('ssoSession') or {}).get('startUrl','')")
   CACHE_FILE=$(grep -l "\"startUrl\": *\"$START_URL\"" ~/.aws/sso/cache/*.json 2>/dev/null | head -1)
 fi
 
@@ -55,7 +105,7 @@ if [ -n "$CACHE_FILE" ] && [ -f "$CACHE_FILE" ]; then
     NOW_EPOCH=$(date "+%s")
     REMAINING=$(( EXPIRES_EPOCH - NOW_EPOCH ))
     if [ "$REMAINING" -le 0 ]; then
-      echo "SSO session expired. Run: aws sso login --sso-session <sessionName>"
+      echo "SSO session expired. Run: $LOGIN_COMMAND"
       exit 1
     fi
   fi
@@ -69,7 +119,8 @@ fi
 An external-IdP helper writes short-lived credentials into a named profile in `~/.aws/credentials`, along with an expiry timestamp. `aws-azure-login` writes `aws_expiration` (ISO 8601):
 
 ```bash
-AUTH_PROFILE=$(python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.corgiro/config.json')))['auth']['profile'])")
+# AUTH_PROFILE comes from 2.0. Do not re-read it as c['auth']['profile'] --
+# that raises TypeError whenever `auth` is null.
 EXPIRES_AT=$(aws configure get aws_expiration --profile "$AUTH_PROFILE" 2>/dev/null)
 
 if [ -z "$EXPIRES_AT" ]; then
@@ -81,16 +132,24 @@ fi
 
 #### 2c. Both — authoritative validity probe
 
-Expiry timestamps only say when a session *would* lapse. They do not detect a session revoked or disabled at the IdP, which otherwise fails on the first member account, mid-fan-out and mid-report. Probe the tooling-account session before doing any work:
+Expiry timestamps only say when a session *would* lapse. They do not detect a session revoked or disabled at the IdP, which otherwise fails on the first member account, mid-fan-out and mid-report. Probe the session before doing any work — the tooling-account session under `cross-account-role`, or a per-account SSO profile under `identity-center-direct`:
 
 ```bash
-aws sts get-caller-identity --profile "$AUTH_PROFILE" >/dev/null 2>&1 || {
+# PROBE_PROFILE and LOGIN_COMMAND come from 2.0.
+if [ -z "$PROBE_PROFILE" ]; then
+  echo "No probeable profile in ~/.corgiro/. Re-run: /corgiro setup-corgiro"
+  exit 1
+fi
+
+aws sts get-caller-identity --profile "$PROBE_PROFILE" >/dev/null 2>&1 || {
   echo "Operator session invalid or expired. Run: $LOGIN_COMMAND"
   exit 1
 }
 ```
 
-`$LOGIN_COMMAND` comes from `auth.loginCommand` for `saml-external`, or is `aws sso login --sso-session <sessionName>` for `identity-center`.
+> **Probe `PROBE_PROFILE`, not `AUTH_PROFILE`.** Under `identity-center-direct` there is no base profile, so `AUTH_PROFILE` names a profile that was never written and the probe fails on a perfectly valid session. Under `cross-account-role` the two are the same value, so one variable is correct on every path.
+
+The remediation string is `$LOGIN_COMMAND` as resolved in 2.0 — `aws sso login --sso-session <sessionName>` under `identity-center`, or `auth.loginCommand` under `saml-external`. Print only the one matching the operator's config, never both.
 
 **Recommended session duration:** 1 hour maximum, configured in IAM Identity Center or in your external IdP. This bounds the window during which a stolen session is usable.
 

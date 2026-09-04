@@ -44,12 +44,17 @@ Everything else in Step 3 — `--permission-model SERVICE_MANAGED`, `--auto-depl
 
 > ⚠️ Mutating step — confirm with the operator before running.
 
-Sign in to the **tooling account** with a role that can create IAM roles, then:
+Sign in to the **tooling account** with a role that can create IAM roles, then resolve the template path the same way Step 3 did — `--template-file` resolves from the shell's working directory, not the skill directory:
 
 ```bash
+CORGIRO_SKILL_DIR=<absolute path to the directory containing SKILL.md>
+OPERATOR_TEMPLATE=$CORGIRO_SKILL_DIR/assets/corgiro-operator-role.yaml
+
+[ -f "$OPERATOR_TEMPLATE" ] || { echo "Template not found at $OPERATOR_TEMPLATE"; exit 1; }
+
 aws cloudformation deploy \
   --stack-name corgiro-operator-role \
-  --template-file assets/corgiro-operator-role.yaml \
+  --template-file "$OPERATOR_TEMPLATE" \
   --parameter-overrides \
       SamlProviderArn=$SAML_PROVIDER_ARN \
       RoleName=$OPERATOR_ROLE_NAME \

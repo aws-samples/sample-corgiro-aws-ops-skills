@@ -218,12 +218,25 @@ aws cloudformation delete-stack-set --stack-set-name <OldStackSetName> \
 
 > ⚠️ Mutating step - confirm with the operator before running.
 
+### Resolve the template path first
+
+`--template-body` needs a path that resolves from **the shell's working directory**, which is wherever the operator invoked Corgiro — not the skill directory. Set `CORGIRO_SKILL_DIR` to the absolute path of the directory containing `SKILL.md` (the same directory these references were loaded from) and build the template path from it:
+
+```bash
+CORGIRO_SKILL_DIR=<absolute path to the directory containing SKILL.md>
+TEMPLATE=$CORGIRO_SKILL_DIR/assets/corgiro-readonly-role.yaml
+
+[ -f "$TEMPLATE" ] || { echo "Template not found at $TEMPLATE"; exit 1; }
+```
+
+Common install locations, if you need to find it: `~/.kiro/skills/corgiro`, `~/.claude/skills/corgiro`, or `<repo>/skills/corgiro` for a local clone. Verify with `ls "$CORGIRO_SKILL_DIR/SKILL.md"` before deploying — a bare relative `file://assets/...` silently resolves against the wrong directory and fails with a misleading template error.
+
 **`management` mode** - run from the payer:
 
 ```bash
 aws cloudformation create-stack-set \
   --stack-set-name CorgiroReadOnlyRole \
-  --template-body file://assets/corgiro-readonly-role.yaml \
+  --template-body "file://$TEMPLATE" \
   --parameters ParameterKey=ToolingAccountId,ParameterValue=$TOOLING_ACCOUNT_ID \
                ParameterKey=ExternalId,ParameterValue=$EXTERNAL_ID \
   --permission-model SERVICE_MANAGED \
@@ -244,7 +257,7 @@ aws cloudformation create-stack-instances \
 ```bash
 aws cloudformation create-stack-set \
   --stack-set-name CorgiroReadOnlyRole \
-  --template-body file://assets/corgiro-readonly-role.yaml \
+  --template-body "file://$TEMPLATE" \
   --parameters ParameterKey=ToolingAccountId,ParameterValue=$TOOLING_ACCOUNT_ID \
                ParameterKey=ExternalId,ParameterValue=$EXTERNAL_ID \
   --permission-model SERVICE_MANAGED \
@@ -305,12 +318,18 @@ Write `~/.corgiro/config.json`:
 ```json
 {
   "accessMode": "cross-account-role",
+  "authMethod": "identity-center",
   "ssoSession": {
     "sessionName": "corgiro",
     "startUrl": "https://ORG.awsapps.com/start",
     "ssoRegion": "us-east-1"
   },
   "identityCenter": null,
+  "auth": {
+    "profile": "corgiro",
+    "loginCommand": null,
+    "operatorRoleArn": null
+  },
   "crossAccount": {
     "toolingAccountId": "<TOOLING_ACCOUNT_ID>",
     "externalId": "<EXTERNAL_ID>",
@@ -319,6 +338,10 @@ Write `~/.corgiro/config.json`:
   }
 }
 ```
+
+> **Write `authMethod` explicitly — it is the answer collected in MODE.md Step 1, not a constant.** If the operator answered *external SAML IdP* there, you are on the wrong file: stop and use [option-b-saml-external.md](option-b-saml-external.md) Steps 4–6 instead, which writes `authMethod: "saml-external"`, `ssoSession: null`, and a populated `auth.loginCommand` / `auth.operatorRoleArn`. Emitting this Identity Center block for a SAML operator produces a config that passes every "absent implies default" rule and then fails on the first member account with an unexplained `AccessDenied`.
+
+> **`auth.profile` records the base profile name.** Set it to the profile you actually wrote above — `corgiro` on a stock setup. It is written out rather than left implicit so that `account-coverage` and every mode can select the base identity with `--profile <auth.profile>` without assuming a literal name; Option C depends on this when `corgiro` was already taken on the operator's machine. `loginCommand` and `operatorRoleArn` are `null` under `identity-center`.
 
 > `crossAccount.externalId` must equal the `ExternalId` passed to the StackSet in Step 3, or every AssumeRole will fail.
 

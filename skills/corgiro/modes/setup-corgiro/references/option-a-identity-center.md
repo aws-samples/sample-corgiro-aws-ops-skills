@@ -6,7 +6,7 @@ Uses the accounts and permission sets the operator is **already assigned** in IA
 
 ## A1: Locate the cached access token
 
-`aws sso login` caches a token under `~/.aws/sso/cache/`. Find the file for this session (`sha1(sessionName).json`) or, as a fallback, the newest `*.json` containing a non-expired `accessToken`. Parse the JSON directly (no extra tooling required); if `jq` is available this one-liner works:
+`aws sso login` caches a token under `~/.aws/sso/cache/`. Find the file for this session at `sha1(sessionName).json`, or — as a fallback — the `*.json` whose `startUrl` matches `ssoSession.startUrl`. **Do not fall back to the newest file:** a laptop commonly holds tokens for several unrelated sessions, so the most recent one is often not Corgiro's (same reasoning as the pre-flight check in [`credential-resolution.md`](../../../references/credential-resolution.md)). Parse the JSON directly (no extra tooling required); if `jq` is available this one-liner works:
 
 ```bash
 TOKEN=$(jq -r 'select(.accessToken) | .accessToken' ~/.aws/sso/cache/*.json | head -1)
@@ -74,7 +74,28 @@ This leverages the CLI's native SSO credential refresh — no custom credential 
 
 ## A6: Save Corgiro config + roster
 
-- `~/.corgiro/config.json` → `accessMode: "identity-center-direct"`, `ssoSession`, `identityCenter.rolePriority`, `identityCenter.profilePrefix` (the prefix used in A5, default `corgiro-`), `discoveredAt`.
+- `~/.corgiro/config.json` — write every top-level field, including the ones that are `null` on this path, so the file matches the schema in [`credential-resolution.md`](../../../references/credential-resolution.md#auth-method-dispatch) and MODE.md's Output section:
+
+  ```json
+  {
+    "accessMode": "identity-center-direct",
+    "authMethod": "identity-center",
+    "ssoSession": {
+      "sessionName": "corgiro",
+      "startUrl": "https://ORG.awsapps.com/start",
+      "ssoRegion": "us-east-1"
+    },
+    "identityCenter": {
+      "rolePriority": ["ReadOnlyAccess", "ViewOnlyAccess", "SecurityAudit"],
+      "profilePrefix": "corgiro-",
+      "discoveredAt": "<iso8601>"
+    },
+    "auth": null,
+    "crossAccount": null
+  }
+  ```
+
+  `profilePrefix` must be the prefix actually used in A5 (default `corgiro-`). `authMethod` is always `identity-center` here — `saml-external` is invalid with `identity-center-direct` and is rejected at setup. `auth` is `null` because this path has **no** base profile: each account is reached through its own `<profilePrefix><accountId>` profile. The pre-flight probe accounts for that by probing a roster profile rather than `auth.profile` (see [`credential-resolution.md`](../../../references/credential-resolution.md#20-all-paths--resolve-the-session-variables)).
 - `~/.corgiro/state/roster.json` → one Roster Entry per account, per the authoritative schema in [`credential-resolution.md`](../../../references/credential-resolution.md#roster-entry-schema-authoritative): `via: "sso"`, the per-account `profile`, and `readOnlyEnforced` — `true` for auto-picked known read-only roles, `false` for accounts the operator double-confirmed in A4 with a non-read-only role (record the `warning` field for those).
 
 After writing, lock down the directory and files: `chmod 700 ~/.corgiro ~/.corgiro/state` and `chmod 600 ~/.corgiro/config.json ~/.corgiro/state/*.json`. Setup MODE.md Step 3 (Validate access & finalize) re-applies this after the coverage snapshot is written.

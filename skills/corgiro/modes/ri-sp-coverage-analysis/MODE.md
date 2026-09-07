@@ -12,7 +12,7 @@ Analyze commitment coverage (Reserved Instances + Savings Plans) across every ac
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session.
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale). The roster is used to resolve the management account's credentials.
 - The **management/payer account** must be in the roster and reachable.
   - `cross-account-role`: `CorgiroReadOnlyRole` deployed to the management account (or use tooling-account CE if that is the delegated-admin for Billing).
@@ -42,7 +42,7 @@ Execute steps sequentially. Read the corresponding reference file before each st
 
 Read [references/spend-decomposition.md](references/spend-decomposition.md).
 
-Validate config and SSO session. Resolve `payer_account_id`:
+Validate config and the operator session. Resolve `payer_account_id`:
 
 - If `auto`: call `aws organizations describe-organization` from the first reachable roster account and read `Organization.MasterAccountId`.
 - Confirm the payer is in `~/.corgiro/state/roster.json` with reachability `reachable`. Resolve credentials for the payer per [`../../references/credential-resolution.md`](../../references/credential-resolution.md).

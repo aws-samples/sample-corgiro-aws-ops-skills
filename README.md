@@ -23,6 +23,8 @@ Each sweep finds:
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
 
+Reviewing Corgiro before you approve it? [docs/how-corgiro-accesses-your-account.md](docs/how-corgiro-accesses-your-account.md) covers the access model in full — the three setup paths, the IAM boundary and its explicit deny list, the external ID, session limits, auditability, and how to revoke.
+
 ![Corgiro report sample](./docs/corgiro-report-sample.png)
 
 ## Quickstart
@@ -91,7 +93,7 @@ For **Option B** (org-wide cross-account access) additionally:
 - A dedicated tooling account with delegated admin for Health, Security Hub, GuardDuty, Config
 - `CorgiroReadOnlyRole` deployed to member accounts via StackSet
 
-Run `/corgiro setup-corgiro` to set up either path.
+Run `/corgiro setup-corgiro` to set up either path. For what each path grants and how it is bounded, see [How Corgiro accesses your AWS accounts](docs/how-corgiro-accesses-your-account.md).
 
 ## Repo Layout
 

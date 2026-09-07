@@ -12,7 +12,7 @@ Invocation: `/corgiro ask <question>` — all tokens after `ask` are the questio
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session.
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale — reachability determines the fan-out set).
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md)
   and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md).

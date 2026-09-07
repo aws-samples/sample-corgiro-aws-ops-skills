@@ -10,7 +10,7 @@ Identify Amazon Bedrock foundation models that are deprecated or approaching dep
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session.
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md)
   and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md).
@@ -33,7 +33,7 @@ Gather from the user before starting:
 ### Step 1: Prerequisite Check
 
 1. Confirm `~/.corgiro/config.json` exists; read `accessMode`.
-2. Validate SSO session is fresh (per credential-resolution.md pre-flight checks).
+2. Validate the operator session is fresh (per credential-resolution.md pre-flight checks).
 3. Confirm coverage snapshot exists at `~/.corgiro/state/roster.json`.
 
 ### Step 2: Fetch Model Lifecycle Data

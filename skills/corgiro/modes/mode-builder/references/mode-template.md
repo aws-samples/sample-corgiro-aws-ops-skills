@@ -21,7 +21,7 @@ user-invocable: true
 
 ## Prerequisites
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session.
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md)
   and [`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md).
@@ -39,7 +39,7 @@ user-invocable: true
 
 ### Step 1: Prerequisite check
 
-Confirm coverage snapshot is fresh and SSO session is valid.
+Confirm coverage snapshot is fresh and the operator session is valid.
 
 ### Step 2: Determine scope
 

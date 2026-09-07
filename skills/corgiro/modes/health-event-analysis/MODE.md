@@ -23,7 +23,7 @@ All Health API calls use `us-east-1` (endpoint `health.us-east-1.amazonaws.com`)
 
 Common:
 
-- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid SSO session
+- `~/.corgiro/config.json` exists (run `/corgiro setup-corgiro` if not) and a valid operator session (see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`)
 - Read [`references/cross-account-defaults.md`](../../references/cross-account-defaults.md) and [`references/credential-resolution.md`](../../references/credential-resolution.md)
 
 For `cross-account-role`:

@@ -11,7 +11,7 @@ Identify Amazon EKS clusters running Kubernetes versions that are approaching or
 ## Prerequisites
 
 - Coverage snapshot exists and is fresh (run `account-coverage` mode if not)
-- Valid SSO session
+- Valid operator session — see [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch) for the login command for your `authMethod`
 - `~/.corgiro/config.json` configured
 
 ## Parameters
@@ -28,7 +28,7 @@ Identify Amazon EKS clusters running Kubernetes versions that are approaching or
 ### Step 1: Prerequisite Check
 
 - Coverage snapshot fresh
-- SSO session valid
+- Operator session valid
 
 ### Step 2: Discover Active Regions
 

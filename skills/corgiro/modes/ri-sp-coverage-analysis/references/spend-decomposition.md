@@ -1,4 +1,4 @@
-# Step 1: Spend Decomposition by Purchase Type
+# Step 2: Spend Decomposition by Purchase Type
 
 Foundation of the analysis. Shows where money is going, how much is on-demand, and separates addressable ("optimizable via commitments") on-demand from inherently on-demand and from non-reservable usage-based charges.
 

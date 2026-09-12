@@ -44,7 +44,7 @@ Read `~/.corgiro/state/roster.json`, then resolve the review set based on `accou
 - **Org-wide (default)** — `accounts` omitted or `all`: review every roster entry with `reachable: true` (or, if the coverage snapshot lacks the field, every roster entry — reachability is re-checked implicitly when the first call runs).
 - **Specific accounts** — `accounts` is a list of IDs: review exactly those. For each requested ID, confirm it exists in the roster; if an ID is not in the roster, skip it and record `not_in_roster` in `scope.json` (Corgiro can only reach accounts set up via `setup-corgiro` / refreshed by `account-coverage`). Do not attempt to reach an account outside the roster.
 
-Then apply `account_filter` (config include/exclude) on top of either set. The management account (`via: management`) is reviewed with local credentials; all other accounts dispatch on their `via` field. Record the final review set — and any skipped/`not_in_roster` IDs — in `scope.json`.
+Then apply `account_filter` (config include/exclude) on top of either set. The management account is reviewed with local credentials (it probes as reachability category `management` — see the reachability table in [`credential-resolution.md`](../../references/credential-resolution.md#reachability-categories-shared-vocabulary)); all other accounts dispatch on their roster entry's `via` field. Record the final review set — and any skipped/`not_in_roster` IDs — in `scope.json`.
 
 ### Step 3: Collect IAM Configuration Per Account
 

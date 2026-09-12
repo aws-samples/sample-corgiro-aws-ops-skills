@@ -1,4 +1,4 @@
-# Step 3: Fetch Details & Affected Accounts
+# Step 4: Fetch Details & Affected Accounts
 
 Method depends on `access_mode`. All calls use `us-east-1`.
 
@@ -20,7 +20,7 @@ aws health describe-affected-accounts-for-organization \
   --output json > details/<event_key>_affected_accounts.json
 ```
 
-Events with `eventScopeCode = PUBLIC` return empty account lists (expected). Run concurrently up to `maxParallel = 4`; back off on `ThrottlingException`.
+Events with `eventScopeCode = PUBLIC` return empty account lists (expected). Run concurrently up to `max_parallel` (default 4); back off on `ThrottlingException`.
 
 ### Event Details (Descriptions)
 Batch up to 10 event ARNs per call. Each entry needs an event ARN + one affected account ID (the first affected account, or the management account for PUBLIC events):
@@ -46,7 +46,7 @@ aws health describe-affected-entities-for-organization \
 
 ## Path A — Per-account (`identity-center-direct`)
 
-The affected account is the account you queried in Step 2 — there is no affected-accounts lookup. Use the single-account operations with that account's profile.
+The affected account is the account you queried in Step 3 — there is no affected-accounts lookup. Use the single-account operations with that account's profile.
 
 ### Event Details
 Batch up to 10 ARNs from the same account:

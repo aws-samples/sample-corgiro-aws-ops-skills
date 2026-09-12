@@ -1,4 +1,4 @@
-# Step 5: Expiring Commitments
+# Step 6: Expiring Commitments
 
 Identify Savings Plans and Reserved Instances that will expire within the next 90 days so the operator can plan renewals before coverage drops.
 
@@ -30,7 +30,7 @@ If `describe-savings-plans` returns `AccessDenied`, skip SP expiry analysis and 
 
 ## Reserved Instance expiry
 
-**Do not re-query the RI list.** Step 3 (utilization) already fetched every active RI with its `EndDateTime` via `get-reservation-utilization`. Reuse the `ri_utilization` array from `utilization.json`.
+**Do not re-query the RI list.** Step 4 (utilization) already fetched every active RI with its `EndDateTime` via `get-reservation-utilization`. Reuse the `ri_utilization` array from `utilization.json`.
 
 For each RI, compute days remaining = `(end_date - now)`.
 
@@ -45,11 +45,11 @@ Assign each commitment to a bucket based on days remaining:
 | Awareness | 61 - 90 | `badge--blue` (Low) | On the horizon; note it for the next review cycle. |
 | Beyond 90 | 91+ | _(not reported here)_ | No action needed yet. |
 
-Anything past its end date (`days_remaining < 0`) should not appear in this list — those are already-expired commitments and would have shown up in step 3 with 0% utilization (or not at all if AWS has retired the record). If any surface, treat them as Immediate and flag as "already expired".
+Anything past its end date (`days_remaining < 0`) should not appear in this list — those are already-expired commitments and would have shown up in step 4 with 0% utilization (or not at all if AWS has retired the record). If any surface, treat them as Immediate and flag as "already expired".
 
 ## Recommended action per commitment
 
-For each expiring commitment, pair the expiry with the utilization signal from step 3 to produce a specific recommendation:
+For each expiring commitment, pair the expiry with the utilization signal from step 4 to produce a specific recommendation:
 
 | Utilization at expiry | Recommended action in the report |
 |-----------------------|----------------------------------|

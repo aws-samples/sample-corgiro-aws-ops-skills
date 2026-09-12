@@ -183,15 +183,15 @@ Aggregate all per-account data into `aggregated.json`. Flag each instance:
 
 ### Step 7: Cost Savings Estimates
 
-If Cost Explorer is accessible (payer account), estimate savings:
+If Cost Explorer is accessible (payer account), estimate savings. **Never use model knowledge for prices** — fetch current rates once per run, per the fail-stop rules in [`../../references/aws-version-lifecycle.md`](../../references/aws-version-lifecycle.md): if a pricing page cannot be fetched, skip that estimate and note the gap in the report instead of substituting remembered prices.
 
-**Graviton savings:** For each `GRAVITON_CANDIDATE`, query CE for its instance type's monthly spend. Apply 20% savings estimate for the arm64 equivalent.
+**Graviton savings:** For each `GRAVITON_CANDIDATE`, query CE for its instance type's monthly spend, then estimate savings from the on-demand price delta between the current x86 type and its arm64 equivalent, using rates fetched from the EC2 on-demand pricing page (https://aws.amazon.com/ec2/pricing/on-demand/) for the instance's region.
 
-**gp2 to gp3 savings:** For each gp2 volume: storage savings = size x $0.02/GB/mo (gp2 $0.10 - gp3 $0.08).
+**gp2 to gp3 savings:** For each gp2 volume: storage savings = size × (gp2 rate − gp3 rate), using per-GB-month rates fetched from the EBS pricing page (https://aws.amazon.com/ebs/pricing/) for the volume's region.
 
-**Stopped instance EBS waste:** For each `STOPPED_WITH_VOLUMES`: sum EBS costs of attached volumes using on-demand pricing (gp2: $0.10/GB/mo, gp3: $0.08/GB/mo, io1/io2: $0.125/GB/mo + $0.065/IOPS/mo, st1: $0.045/GB/mo, sc1: $0.015/GB/mo).
+**Stopped instance EBS waste:** For each `STOPPED_WITH_VOLUMES`: sum monthly EBS costs of attached volumes (per-GB and, for io1/io2, per-IOPS rates) using the same fetched EBS pricing.
 
-> These are estimates based on us-east-1 on-demand pricing. Actual savings vary by region and RI/SP coverage.
+> These are estimates from on-demand rates fetched at run time. Actual savings vary with RI/SP coverage and negotiated discounts. Record the pricing URLs and fetch timestamp in the Methodology section.
 
 If CE is inaccessible, skip this step and note the gap in the report.
 
@@ -217,7 +217,7 @@ Write `EC2-Compute-Review-<DATE>.md` and/or `.html` per `output_format`. Then op
 
 - Read-only: only describe/list/get calls (`ec2 describe-instances`, `ec2 describe-volumes`, `ec2 describe-security-groups`, `ec2 describe-snapshots`, `cloudwatch get-metric-data`, `ce get-cost-and-usage`).
 - Never print access keys, session tokens, or the external ID.
-- Cost estimates use published on-demand pricing and are clearly labeled as estimates.
+- Cost estimates use on-demand pricing fetched at run time (never model knowledge) and are clearly labeled as estimates.
 
 ## Output
 

@@ -1,4 +1,4 @@
-# Step 1: Collect User Input
+# Step 2: Collect User Input
 
 Prompt for parameters with defaults. Record in `scope.json` (include `access_mode` read from `~/.corgiro/config.json`):
 

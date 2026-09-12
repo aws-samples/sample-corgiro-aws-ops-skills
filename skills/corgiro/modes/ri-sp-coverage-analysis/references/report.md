@@ -1,4 +1,4 @@
-# Step 6: Generate Report
+# Step 7: Generate Report
 
 Aggregate the five persisted JSON files (`spend-decomposition.json`, `coverage.json`, `utilization.json`, `recommendations.json`, `expiring.json`) into `aggregated.json`, then render a self-contained HTML report plus a Markdown sibling.
 
@@ -66,7 +66,7 @@ Below the table, list any `region_gaps` from `coverage.json` as a warning callou
 
 `data-table` with columns: Type (RI / SP), ID, Service, Instance Type, Region, Commitment $/hr, Start, End, Utilization %, Status, Days Until Expiry.
 
-Utilization % badge per step 3's mapping. Status column shows one of: `badge--green` Active, `badge--amber` Expiring (within 90 days), `badge--red` Expiring Soon (within 30 days).
+Utilization % badge per step 4's mapping. Status column shows one of: `badge--green` Active, `badge--amber` Expiring (within 90 days), `badge--red` Expiring Soon (within 30 days).
 
 If any RI describe returned `AccessDenied`, add a note above the table: "Some RI inventory unavailable (`<service_list>`) — coverage percentages remain accurate."
 

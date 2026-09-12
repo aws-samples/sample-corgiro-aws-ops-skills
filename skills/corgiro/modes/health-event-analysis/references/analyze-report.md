@@ -1,4 +1,4 @@
-# Step 4: Analyze & Report
+# Step 5: Analyze & Report
 
 ## Build account_rollup.json
 
@@ -23,7 +23,7 @@ Inverted index keyed by account ID. Map IDs to names from `accounts.json` (org m
 }
 ```
 
-In per-account mode, each event is already tagged with its source `accountId` from Step 2, so the rollup is built directly from the event index.
+In per-account mode, each event is already tagged with its source `accountId` from Step 3, so the rollup is built directly from the event index.
 
 ## Pattern Analysis
 

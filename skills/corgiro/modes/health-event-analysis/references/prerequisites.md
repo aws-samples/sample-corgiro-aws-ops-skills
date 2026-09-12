@@ -1,4 +1,4 @@
-# Step 0: Prerequisite Check
+# Step 1: Prerequisite Check
 
 Run these checks **before** prompting the user. Do not display the check list. If any fails, stop with a clear error. First read `accessMode` from `~/.corgiro/config.json`, then run the checks for that mode.
 

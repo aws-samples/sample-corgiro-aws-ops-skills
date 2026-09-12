@@ -1,6 +1,6 @@
-# Corgiro
+# Glossary (shared)
 
-AWS multi-account cloud-operations skill. Modes fan out read-only AWS API calls across an organization's accounts and render shareable reports. This glossary pins the vocabulary shared by all modes.
+This glossary pins the vocabulary shared by all Corgiro modes. Use these terms — and avoid the listed alternatives — in every MODE.md, reference, and report.
 
 ## Language
 

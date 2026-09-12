@@ -36,11 +36,9 @@ Gather from the user before starting. State the defaults and ask: "Want to adjus
 
 ## Workflow
 
-Execute steps sequentially. Read the corresponding reference file before each step.
+Execute steps sequentially. Steps 2–7 each name a reference file — read it before executing that step. Step 1 has no reference file.
 
 ### Step 1: Prerequisite check and payer resolution
-
-Read [references/spend-decomposition.md](references/spend-decomposition.md).
 
 Validate config and the operator session. Resolve `payer_account_id`:
 

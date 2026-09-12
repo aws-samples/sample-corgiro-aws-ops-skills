@@ -1,4 +1,4 @@
-# Step 3: Utilization Check (Waste Detection)
+# Step 4: Utilization Check (Waste Detection)
 
 Before recommending new purchases, verify existing commitments are being used. Flag underused SPs and RIs as waste — buying more when current commitments are underused makes the problem worse.
 
@@ -6,7 +6,7 @@ All calls run against the payer account in `us-east-1`. Resolve credentials per 
 
 Fire the two groups in parallel; they are independent.
 
-## 3a. Savings Plans utilization
+## 4a. Savings Plans utilization
 
 ```bash
 aws ce get-savings-plans-utilization \
@@ -25,14 +25,14 @@ Extract from `Total`:
 
 **Flag if `UtilizationPercentage < 90%`.** SPs are commitment-based, so anything under 90% is money spent that would have been cheaper as on-demand.
 
-## 3b. Reserved Instance utilization (per RI-eligible service)
+## 4b. Reserved Instance utilization (per RI-eligible service)
 
 API mechanics to be aware of:
 
 - `get-reservation-utilization` **does not allow `--granularity` and `--group-by` together.** When `GroupBy` is set, omit `Granularity` entirely.
 - Like `get-reservation-coverage`, this API **defaults to EC2** without a SERVICE filter. Every non-EC2 service needs an explicit filter.
 
-Run one call per RI-eligible service (matching step 2's SERVICE filter values). Fire in parallel:
+Run one call per RI-eligible service (matching step 3's SERVICE filter values). Fire in parallel:
 
 ```bash
 aws ce get-reservation-utilization \
@@ -48,12 +48,12 @@ aws ce get-reservation-utilization \
   --output json > ri-utilization-<service_slug>.json
 ```
 
-SERVICE filter values are identical to step 2's table. For EC2, omit the filter.
+SERVICE filter values are identical to step 3's table. For EC2, omit the filter.
 
 Each `Group` in the response is one RI. Extract per RI:
 
 - `Key` — the RI's subscription ID
-- `Attributes` — includes `EndDateTime` (**reuse this in step 5** — do not re-query)
+- `Attributes` — includes `EndDateTime` (**reuse this in step 6** — do not re-query)
 - `Utilization.UtilizationPercentage`
 - `Utilization.PurchasedHours`
 - `Utilization.TotalActualHours`
@@ -63,7 +63,7 @@ Each `Group` in the response is one RI. Extract per RI:
 
 **Flag if `UtilizationPercentage < 80%`.** The 80% threshold is deliberately lower than the SP threshold because RIs have less flexibility (locked to a specific instance family and often region), so a small utilization dip is more forgivable.
 
-Waste amount per underused RI = `UnusedHours × RIHourlyRate`. The hourly rate is not returned by the utilization API — approximate it from the RI's amortized cost in step 1's data, or use `RIHours × (OnDemandCostOfRIHoursUsed / TotalActualHours)` as a proxy.
+Waste amount per underused RI = `UnusedHours × RIHourlyRate`. The hourly rate is not returned by the utilization API — approximate it from the RI's amortized cost in step 2's data, or use `RIHours × (OnDemandCostOfRIHoursUsed / TotalActualHours)` as a proxy.
 
 ## Output
 
@@ -100,7 +100,7 @@ Persist to `<run_dir>/utilization.json`. Structure:
 }
 ```
 
-The `ri_utilization` array feeds step 5's expiry analysis directly — do not re-query the RI list there.
+The `ri_utilization` array feeds step 6's expiry analysis directly — do not re-query the RI list there.
 
 ## What to report
 

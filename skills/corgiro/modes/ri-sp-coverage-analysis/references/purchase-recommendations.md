@@ -1,8 +1,8 @@
-# Step 4: Purchase Recommendations
+# Step 5: Purchase Recommendations
 
 Pull recommendations from two sources — Cost Explorer's native SP recommender and Cost Optimization Hub — and cross-reference them. Both are payer-scoped; run against the payer account in `us-east-1`. Resolve credentials per [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
 
-## 4a. Cost Explorer SP purchase recommendations
+## 5a. Cost Explorer SP purchase recommendations
 
 Call once per SP type in the operator's `sp_types` parameter (see the mapping below). Fire in parallel.
 
@@ -28,7 +28,7 @@ SP type mapping (`sp_types` parameter → API value):
 | `sagemaker` | `SAGEMAKER_SP` | SageMaker training and inference |
 | `database` | `DATABASE_SP` | Aurora, RDS, DynamoDB, ElastiCache, DocumentDB, Neptune, Keyspaces, Timestream, DMS, OpenSearch |
 
-If `sp_types = all`, call for each type that has meaningful on-demand spend in step 1:
+If `sp_types = all`, call for each type that has meaningful on-demand spend in step 2:
 
 - Always call `COMPUTE_SP` (covers EC2, Fargate, Lambda).
 - Call `DATABASE_SP` if any Database-SP-eligible service has on-demand spend. Eligible services are listed above. **Do NOT include** Redshift, MSK, MemoryDB, or Managed Apache Flink in the Database SP addressable spend calculation — they are not covered by Database SPs (Redshift has its own RI program).
@@ -44,13 +44,13 @@ Each response contains `SavingsPlansPurchaseRecommendation.SavingsPlansPurchaseR
 - `EstimatedOnDemandCost` — what would have been spent on-demand
 - `EstimatedSavingsPlansCost` — the commitment portion
 
-Derived field for the report: `Est. Monthly OD After Purchase = <monthly_avg_on_demand_from_step_1> − <EstimatedMonthlySavingsAmount>`. Use step 1's **coverable** on-demand bucket (after the USAGE_TYPE drill-down), not the raw on-demand number.
+Derived field for the report: `Est. Monthly OD After Purchase = <monthly_avg_on_demand_from_step_2> − <EstimatedMonthlySavingsAmount>`. Use step 2's **coverable** on-demand bucket (after the USAGE_TYPE drill-down), not the raw on-demand number.
 
-## 4b. Cost Optimization Hub cross-reference
+## 5b. Cost Optimization Hub cross-reference
 
 COH aggregates recommendations across multiple optimization types (rightsizing, idle, Graviton, commitments, etc.). This step pulls only the commitment-related recommendations.
 
-Skip 4b gracefully if COH is not enabled or returns `AccessDenied`.
+Skip 5b gracefully if COH is not enabled or returns `AccessDenied`.
 
 ```bash
 aws cost-optimization-hub list-recommendation-summaries \

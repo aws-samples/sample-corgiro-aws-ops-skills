@@ -1,6 +1,6 @@
 ---
 name: bedrock-model-lifecycle
-description: "Identify Amazon Bedrock foundation models that are deprecated (LEGACY) or approaching legacy/extended-support within 2 months across all reachable accounts. Shows which accounts and inference profiles are still using at-risk models. Use when checking Bedrock model deprecation, model lifecycle, legacy model usage, or planning model migrations."
+description: "Identify Amazon Bedrock foundation models that are deprecated (LEGACY) or approaching legacy/extended-support within a configurable horizon (default 60 days) across all reachable accounts. Shows which accounts and inference profiles are still using at-risk models. Use when checking Bedrock model deprecation, model lifecycle, legacy model usage, or planning model migrations."
 user-invocable: true
 ---
 
@@ -66,7 +66,7 @@ From `model-catalogue.json`, flag models matching any of these criteria:
 | 🔴 Critical | `status = LEGACY` AND `endOfLifeTime` is within `horizon_days` or already past | `badge--red` |
 | 🟠 High | `status = LEGACY` AND `publicExtendedAccessTime` is within `horizon_days` or already past (extended-support pricing active/imminent) | `badge--orange` |
 | 🟡 Medium | `status = ACTIVE` but `legacyTime` is within `horizon_days` (approaching legacy) | `badge--amber` |
-| ⚪ Info | `status = LEGACY` but `endOfLifeTime` is far out (>60 days) — deprecated but not urgent | `badge--zinc` |
+| ⚪ Info | `status = LEGACY` but `endOfLifeTime` is beyond `horizon_days` — deprecated but not urgent | `badge--zinc` |
 
 If no models match any risk tier, report "all clear" and stop.
 
@@ -135,7 +135,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 
 **Report sections:**
 
-1. **Executive Summary** — KPI cards: total at-risk models, total accounts affected, total invocations on deprecated models, models approaching legacy within 60 days
+1. **Executive Summary** — KPI cards: total at-risk models, total accounts affected, total invocations on deprecated models, models approaching legacy within `horizon_days`
 2. **Model Lifecycle Timeline** — table of all at-risk models with key dates:
    | Model | Provider | Status | Legacy Date | Extended Support Date | End of Life | Risk |
 3. **Active Usage of At-Risk Models** — per model, which accounts are still calling it:

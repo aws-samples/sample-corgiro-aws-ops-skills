@@ -1,4 +1,4 @@
-# Step 2: Coverage Analysis
+# Step 3: Coverage Analysis
 
 Compute per-service coverage from Savings Plans and Reserved Instances, gather the RI inventory, and detect region gaps. All calls run against the payer account in `us-east-1`. Resolve credentials per [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
 
@@ -10,7 +10,7 @@ Coverage is a **point-in-time** signal — it tells you how much of your current
 
 Three groups of calls are independent and all target the payer. Run them concurrently, bounded by the concurrency ceiling in MODE.md.
 
-## 2a. Savings Plans coverage
+## 3a. Savings Plans coverage
 
 ```bash
 aws ce get-savings-plans-coverage \
@@ -23,14 +23,14 @@ aws ce get-savings-plans-coverage \
 
 Extract per service: `CoveragePercentage`, `SpendCoveredBySavingsPlans`, `OnDemandCost`, `TotalCost`.
 
-## 2b. Reserved Instance coverage (per RI-eligible service)
+## 3b. Reserved Instance coverage (per RI-eligible service)
 
 Important CE mechanics:
 
 - `get-reservation-coverage` **defaults to EC2** when no SERVICE filter is provided. That is why EC2 does not need a filter — every other service does.
 - Adding a `SERVICE` dimension filter returns RI coverage for that specific service. No service-specific coverage APIs are needed.
 
-Run one call per RI-eligible service that has spend in step 1. Fire in parallel:
+Run one call per RI-eligible service that has spend in step 2. Fire in parallel:
 
 ```bash
 aws ce get-reservation-coverage \
@@ -61,9 +61,9 @@ SERVICE filter values (must match CE's expected strings exactly):
 
 Extract per (service, instance type): `CoverageHoursPercentage`, `OnDemandHours`, `ReservedHours`, `TotalRunningHours`.
 
-## 2c. RI inventory detail (supplemental)
+## 3c. RI inventory detail (supplemental)
 
-The CE calls in 2b give coverage percentages but not RI metadata (expiry dates, offering type, count). For the "Existing Commitments" table in the report and the expiry analysis in step 5, also query service-specific RI describe APIs. Fire in parallel:
+The CE calls in 3b give coverage percentages but not RI metadata (expiry dates, offering type, count). For the "Existing Commitments" table in the report and the expiry analysis in step 6, also query service-specific RI describe APIs. Fire in parallel:
 
 ```bash
 aws rds describe-reserved-db-instances --region us-east-1 --output json > rds-reserved.json
@@ -86,31 +86,31 @@ For each active RI, extract:
 - end date
 - region
 
-If any RI describe call returns `AccessDenied`, skip that service in the inventory (coverage percentages from 2b remain valid) and note it in the report.
+If any RI describe call returns `AccessDenied`, skip that service in the inventory (coverage percentages from 3b remain valid) and note it in the report.
 
 ## Combining into the unified coverage view
 
-For each RI-eligible service, produce a row combining SP coverage (2a) and RI coverage (2b):
+For each RI-eligible service, produce a row combining SP coverage (3a) and RI coverage (3b):
 
 | Column | Source |
 |--------|--------|
-| Service | 2a / 2b service name |
-| Instance Type | 2b `INSTANCE_TYPE` grouping |
-| Total Spend | step 1 `total_spend` for that service |
-| SP Coverage % | 2a `CoveragePercentage` |
-| RI Coverage % | 2b `CoverageHoursPercentage` |
+| Service | 3a / 3b service name |
+| Instance Type | 3b `INSTANCE_TYPE` grouping |
+| Total Spend | step 2 `total_spend` for that service |
+| SP Coverage % | 3a `CoveragePercentage` |
+| RI Coverage % | 3b `CoverageHoursPercentage` |
 | Combined Coverage % | `SpendCoveredBySavingsPlans` + (`ReservedHours` × avg on-demand rate) ÷ total addressable |
-| On-Demand Gap $ | step 1 `monthly_avg_on_demand` (coverable bucket only) − currently-covered |
+| On-Demand Gap $ | step 2 `monthly_avg_on_demand` (coverable bucket only) − currently-covered |
 
 ## Region gap detection
 
-The service-specific RI describe APIs are **regional** — running them in `us-east-1` only returns RIs in that region. Cross-reference the region distribution of on-demand instance spend (from step 1's USAGE_TYPE drill-down, which surfaces region-suffixed usage types) against the regions where RIs actually exist.
+The service-specific RI describe APIs are **regional** — running them in `us-east-1` only returns RIs in that region. Cross-reference the region distribution of on-demand instance spend (from step 2's USAGE_TYPE drill-down, which surfaces region-suffixed usage types) against the regions where RIs actually exist.
 
 If a service has significant on-demand instance spend in a region with no RI coverage (e.g. `ca-central-1` RDS spend but RIs only in `us-east-1`), flag it:
 
 > Region gap: `<service>` has $`<amount>`/month instance spend in `<region>` with no RI coverage. RDS / ElastiCache / OpenSearch RIs are **region-locked** — they will not cover other regions.
 
-For a full picture across regions, you can optionally repeat 2c across each region where the service has spend. This adds cost (extra API calls) but produces a complete RI inventory. Default: run 2c in `us-east-1` and flag region gaps rather than sweeping every region.
+For a full picture across regions, you can optionally repeat 3c across each region where the service has spend. This adds cost (extra API calls) but produces a complete RI inventory. Default: run 3c in `us-east-1` and flag region gaps rather than sweeping every region.
 
 ## Output
 

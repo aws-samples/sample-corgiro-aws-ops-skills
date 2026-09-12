@@ -35,7 +35,13 @@ For every `aws` command in the mode:
 
 ## 5. Leak Scan
 
-Grep for these — any hit is a hard fail:
+Run the bundled scanner — any hit is a hard fail:
+
+```bash
+bash <skill-root>/scripts/leak-scan.sh modes/<name>/
+```
+
+It greps for:
 
 ```
 k2_    dante_    cmc_    caseapi_    harbinger_    sift_    pfr
@@ -43,8 +49,8 @@ use_subagent    ~/shared/tam-work    ReadInternalWebsites
 mwinit    isengard    midway    CAZ    bubblewand
 ```
 
-Also reject:
-- Real 12-digit AWS account IDs
+And also rejects:
+- Real 12-digit AWS account IDs (repeated-digit placeholders like `111111111111` and `123456789012` are allowed)
 - Internal hostnames (`.amazon.com`, `.a2z.com`, `.corp.amazon.com`)
 - Internal tool names (UNO, AIM, K2, Dante, CMC)
 

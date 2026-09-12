@@ -12,27 +12,34 @@ Unlike multi-skill collections, Corgiro ships as **one skill** (`skills/corgiro/
 /corgiro <mode-name>
 ```
 
-`SKILL.md` is a thin **router** — it parses the first token as the mode name and dispatches to `modes/<mode>/MODE.md`. Everything else is one of three content types: **modes** (how a capability runs), **references** (what the agent knows), and **assets** (concrete files modes read or emit).
+`SKILL.md` is a thin **router** — it parses the first token as the mode name and dispatches to `modes/<mode>/MODE.md`. Everything else is one of four content types: **modes** (how a capability runs), **references** (what the agent knows), **scripts** (deterministic helpers modes execute verbatim), and **assets** (concrete files modes read or emit).
 
 ```
 skills/corgiro/
 ├── SKILL.md                       # 🧭 Router: /corgiro <mode> dispatch, config schema, safety
 ├── modes/                         # 🎬 One workflow per mode (each = a /corgiro subcommand)
 │   ├── setup-corgiro/
-│   │   ├── MODE.md                #    chooses Option A or B
-│   │   └── references/            #    option-a-identity-center.md, option-b-cross-account.md
+│   │   ├── MODE.md                #    chooses path A, B, or C
+│   │   └── references/            #    option-a-identity-center.md, option-b-cross-account.md,
+│   │                              #    option-b-saml-external.md, option-c-join-existing.md
 │   ├── account-coverage/MODE.md
 │   ├── health-event-analysis/
 │   │   ├── MODE.md
-│   │   └── references/            #    step-0…step-4 (progressive disclosure)
+│   │   └── references/            #    one file per step (progressive disclosure)
 │   ├── rds-eol-analysis/MODE.md
 │   ├── eks-eol-analysis/MODE.md
-│   └── ec2-compute-review/MODE.md
+│   ├── ec2-compute-review/MODE.md
+│   └── …                          #    more modes — see SKILL.md's Available modes table
 ├── references/                    # 📚 Shared knowledge/config/conventions (reused by modes)
 │   ├── cross-account-defaults.md
 │   ├── credential-resolution.md
 │   ├── aws-version-lifecycle.md
-│   └── report-format.md
+│   ├── report-format.md
+│   └── glossary.md
+├── scripts/                       # 🔧 Deterministic helpers modes execute verbatim
+│   ├── preflight.sh               #    pre-flight security checks (every mode)
+│   ├── inject-report-assets.py    #    splices CSS + logo into reports
+│   └── leak-scan.sh               #    validation-gate scanner (mode-builder)
 └── assets/                        # 🧱 Files modes read or emit
     ├── corgiro-readonly-role.yaml #    CloudFormation (Option B)
     ├── report-theme.css           #    shared report styling
@@ -44,7 +51,7 @@ Putting content in the wrong bucket degrades the agent: a mode that inlines shar
 
 ---
 
-## The three content types
+## The four content types
 
 ### `modes/<name>/MODE.md` — _how_ a capability runs
 
@@ -77,6 +84,10 @@ If two or more modes need the same fact or procedure, it belongs here — not co
 
 Files a mode reads as input or emits as output: the Option B CloudFormation template, the report theme, and the logo. Keep report output **self-contained** — embed images as data URIs (see `corgiro-logo.datauri`), never link external URLs or fonts.
 
+### `scripts/` — deterministic helpers
+
+Fragile or security-critical operations a mode must execute **verbatim** rather than have the agent retype: pre-flight security checks (`preflight.sh`), report asset injection (`inject-report-assets.py`), and the leak scanner (`leak-scan.sh`). If a procedure would break when a variable is mistyped — or a mistype would silently pass a security control — it belongs here, with the *rationale* documented in the reference that points to it.
+
 ### Where does new content go?
 
 | If the content is…                                           | It goes in…                      |
@@ -84,6 +95,7 @@ Files a mode reads as input or emits as output: the Option B CloudFormation temp
 | A new top-level capability invoked as `/corgiro <x>`         | `modes/<x>/MODE.md`              |
 | Step detail for one complex mode, loaded on demand           | `modes/<x>/references/step-*.md` |
 | Knowledge / config / conventions reused by 2+ modes          | `references/<name>.md`           |
+| A fragile or security-critical procedure modes run verbatim  | `scripts/`                       |
 | A file a mode reads or emits (template, CSS, image)          | `assets/`                        |
 | Global routing, the config schema, or repo-wide safety rules | `SKILL.md`                       |
 
@@ -145,7 +157,7 @@ Use the GitHub issue tracker for `aws-samples/sample-corgiro-aws-ops-skills`. Ch
 3. Discuss significant work in an issue first.
 4. Validate before opening the PR: Markdown renders, relative links resolve, and (for report changes) a sample report opens offline with no network calls.
 5. Commit with clear messages and open a Pull Request describing the change and how you tested it.
-6. Watch for CI / review feedback and stay in the conversation.
+6. Watch for review feedback and stay in the conversation (this repo has no CI — validation is manual, per step 4).
 
 ## Code of Conduct
 

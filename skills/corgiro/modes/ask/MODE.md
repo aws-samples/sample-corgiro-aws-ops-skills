@@ -106,7 +106,7 @@ After a successful run, ask: "Save this as a permanent mode?" If yes, invoke `mo
 ## Output
 
 ```
-./ask-<run_id>/
+./<run_id>/
 ├── plan.json                                    (approved plan — execution contract + handoff artifact)
 ├── scope.json
 ├── per-account/<account_id>/<region>/<step>.json

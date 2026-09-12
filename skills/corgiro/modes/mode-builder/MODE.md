@@ -14,7 +14,7 @@ Only builds modes using **public AWS CLI read-only APIs**. If a workflow require
 
 ## Prerequisites
 
-- This repo (`corgiro-aws-ops-skills`) is cloned locally and on the latest `main`.
+- This repo (`sample-corgiro-aws-ops-skills`) is cloned locally and on the latest `main`.
 - Familiarity with the resource or configuration you want to inspect.
 - No `~/.corgiro/config.json` required — this mode builds other modes, it does not query AWS accounts.
 
@@ -145,7 +145,7 @@ Read [references/validation-checklist.md](references/validation-checklist.md) an
 3. **Conventions** — read-only, no secrets, self-contained reports, state in `~/.corgiro/`, placeholder IDs, access-mode-agnostic
 4. **Link integrity** — relative links resolve (`../../references/` from MODE.md)
 5. **Shared reference reuse** — references credential-resolution.md and report-format.md (not duplicated)
-6. **No internal tokens** — grep for: `k2_`, `dante_`, `cmc_`, `caseapi_`, `harbinger_`, `sift_`, `pfr`, `use_subagent`, `~/shared/tam-work`, `ReadInternalWebsites`, `mwinit`, `isengard`, `midway`, `CAZ`, real 12-digit account IDs, internal hostnames
+6. **No internal tokens** — run `bash ../../scripts/leak-scan.sh modes/<mode-name>/` (from the skill root: `scripts/leak-scan.sh`); it greps for internal tool tokens, internal hostnames, and real 12-digit account IDs
 
 Report results:
 ```

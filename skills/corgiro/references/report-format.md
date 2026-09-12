@@ -4,8 +4,7 @@ How every report-producing Corgiro mode renders output, so reports look identica
 regardless of which mode produced them. Reports are **agent-authored, self-contained
 single-file HTML** — no scripts to run, no build step, no network calls.
 
-**Applies to:** `account-coverage`, `health-event-analysis`, `rds-eol-analysis`, `eks-eol-analysis`, `ec2-compute-review`.
-`setup-corgiro` prints a console summary only — it produces no report file.
+**Applies to:** every report-producing mode — all modes except `setup-corgiro`, which prints a console summary only and produces no report file. (`ask` renders a report only when the operator requests one; `mode-builder` reads this file so the modes it generates render correctly.)
 
 ## Rules
 
@@ -18,25 +17,13 @@ single-file HTML** — no scripts to run, no build step, no network calls.
 6. **Open it.** After writing the HTML: `open ./<run_dir>/<Report-Name>-<DATE>.html`.
 7. **Retention is the operator's call.** Never auto-delete reports. If the operator asks, offer to remove old run directories — do not remove them automatically.
 8. **Escape untrusted resource data (XSS).** Every string derived from AWS API output (resource names, tags, EKS Group/Team/Application tags, ARNs, health-event descriptions, any metadata) is attacker-controlled. Because the report is agent-authored HTML opened from `file://`, an unescaped `<script>` or `<img onerror=...>` in a value executes with local-file privileges and can read sibling reports in the run directory. Before inserting any resource-derived string into the HTML you MUST HTML-entity-escape it: `&` to `&amp;` (do this first), `<` to `&lt;`, `>` to `&gt;`, `"` to `&quot;`, `'` to `&#39;`. This applies in every context: table cells, `<details>`/`<summary>`, attributes, and list items. Code-block or literal wrapping does NOT escape HTML and is not a substitute. Truncate to 256 raw characters first, then escape, then wrap (see SKILL.md Prompt Injection Defense rule 3). Trusted repo assets (`report-theme.css`, `corgiro-logo.datauri`) are inlined verbatim and exempt; the optional inline sort `<script>` must be static and must never contain resource data.
-9. **Inline assets by injection, not transcription.** The logo data URI (a single ~16 KB base64 line) and the CSS are too large to copy through the model reliably — hand-transcription truncates or corrupts them, producing a broken/missing logo. Instead, author the HTML with placeholder tokens and splice the real files in with a script. Use placeholders `/*__CORGIRO_CSS__*/` inside the `<style>` block and `__CORGIRO_LOGO__` as the `.brand-logo` `src`, then run (resolve `<assets>` to the skill's `assets/` directory):
+9. **Inline assets by injection, not transcription.** The logo data URI (a single ~16 KB base64 line) and the CSS are too large to copy through the model reliably — hand-transcription truncates or corrupts them, producing a broken/missing logo. Instead, author the HTML with placeholder tokens — `/*__CORGIRO_CSS__*/` inside the `<style>` block and `__CORGIRO_LOGO__` as the `.brand-logo` `src` — then splice the real files in with the bundled script (`<skill-root>` = the directory containing `SKILL.md`):
 
    ```bash
-   python3 - <<'PY'
-   css  = open('<assets>/report-theme.css').read()
-   logo = open('<assets>/corgiro-logo.datauri').read().strip()
-   p = '<run_dir>/<Report-Name>-<DATE>.html'
-   html = open(p).read().replace('/*__CORGIRO_CSS__*/', css).replace('__CORGIRO_LOGO__', logo)
-   open(p, 'w').write(html)
-   PY
+   python3 <skill-root>/scripts/inject-report-assets.py '<run_dir>/<Report-Name>-<DATE>.html'
    ```
 
-   Python is used because base64 contains `/ + =`, which break `sed` delimiters. **Verify after injection** — confirm the data URI landed intact before opening the report:
-
-   ```bash
-   grep -c 'src="data:image/png;base64,iVBOR' '<run_dir>/<Report-Name>-<DATE>.html'   # expect 1
-   ```
-
-   If the count is not 1, the logo is broken — re-run the injection. Only then proceed to Rule 6 (open).
+   The script locates `assets/` itself (or pass an assets directory as a second argument), refuses to run if a placeholder is missing, and verifies the data URI landed intact — expect its final line `OK: assets injected …`. If it exits non-zero, fix the placeholder and re-run; only then proceed to Rule 6 (open). Run the script as-is — do not re-implement the injection inline (Python is used because base64 contains `/ + =`, which break `sed` delimiters).
 
 ## Naming conventions (shared across modes)
 

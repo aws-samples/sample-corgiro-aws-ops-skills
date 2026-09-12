@@ -1,4 +1,4 @@
-# Step 2: Fetch Health Events
+# Step 3: Fetch Health Events
 
 All Health API calls use `us-east-1`. The collection method depends on `access_mode` in `scope.json`.
 
@@ -17,7 +17,7 @@ aws health describe-events-for-organization \
   --output json > events/events_page_001.json
 ```
 
-For `full` scope add `"closed"` to `eventStatusCodes`; add `"services": ["<service_filter>"]` when filtering. Summaries do not include affected accounts or descriptions (fetched in Step 3).
+For `full` scope add `"closed"` to `eventStatusCodes`; add `"services": ["<service_filter>"]` when filtering. Summaries do not include affected accounts or descriptions (fetched in Step 4).
 
 ## Path A — Per-account (`identity-center-direct`)
 
@@ -37,7 +37,7 @@ aws health describe-events \
 
 - **Tag every returned event with its source `accountId`** — this replaces the org affected-accounts lookup.
 - `SubscriptionRequiredException` → account lacks Business/ENT support. Add to `skipped_accounts`, continue.
-- Run up to `maxParallel` (4) accounts concurrently; back off on `ThrottlingException`.
+- Run up to `max_parallel` (default 4) accounts concurrently; back off on `ThrottlingException`.
 
 ## Pagination
 

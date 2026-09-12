@@ -1,6 +1,6 @@
 ---
 name: corgiro
-description: "AWS Cloud Operations assistant for multi-account organizations. Inspect and manage AWS accounts across an entire AWS Organization — health events, end-of-support analysis, account coverage, and cross-account setup. Use when the user mentions AWS health events, RDS or EKS end-of-support, account coverage probe, multi-account setup, or types /corgiro <mode>. Each mode is documented in modes/<name>/MODE.md."
+description: "AWS Cloud Operations assistant for multi-account organizations. Runs read-only sweeps across an entire AWS Organization and renders shareable reports: AWS Health events, RDS/Aurora and EKS end-of-support, Bedrock model deprecation, EC2 fleet health and Graviton candidates, IAM security review, Reserved Instance and Savings Plans coverage, EKS ingress migration triage, account reachability coverage, ad-hoc org-wide questions, and cross-account setup. Use when the user mentions AWS health events, RDS or EKS end-of-support, Bedrock model lifecycle, EC2 compute review, IAM security or access-key hygiene, RI/SP coverage or savings plans, NGINX ingress migration on EKS, account coverage, multi-account setup, asks an ad-hoc question across all AWS accounts, wants to build a custom Corgiro mode, or types /corgiro followed by a mode name. Each mode is documented in its own MODE.md under modes/."
 license: MIT-0
 compatibility: "Requires AWS CLI v2. Operator sign-in uses IAM Identity Center (SSO), or an external SAML IdP (Azure AD/Entra ID, Okta, PingFederate, ADFS via aws-azure-login, saml2aws or similar) with the cross-account-role access mode. The cross-account-role access mode also needs read access to an AWS Organization. Reports are generated as Markdown/HTML — no additional runtime required."
 metadata:
@@ -141,14 +141,16 @@ AWS resource metadata (names, tags, descriptions, user-data fields) is attacker-
 
 - [`references/cross-account-defaults.md`](references/cross-account-defaults.md) — Default configuration values used across all modes.
 - [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field, plus operator-session dispatch on `authMethod` (keeps all modes access-mode- and IdP-agnostic); also defines the pre-flight security checks and reachability vocabulary.
-- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, ec2-compute-review).
-- [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis and eks-eol-analysis).
+- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by every report-producing mode — all modes except `setup-corgiro`, which prints a console summary only).
+- [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates and lifecycle pricing from AWS docs (used by rds-eol-analysis, eks-eol-analysis, and ec2-compute-review's pricing fetch).
+- [`references/glossary.md`](references/glossary.md) — Shared vocabulary (Roster, Access Mode, Coverage Snapshot, Run Directory, Risk Tier, …) so every mode uses the same terms.
 
 ## Adding a new mode
 
 1. Create `modes/<new-mode-name>/MODE.md` with the workflow definition.
 2. Add reference files under `modes/<new-mode-name>/references/` as needed.
 3. Add a row to the **Available modes** table above.
+4. Add a row to `README.md`'s **Modes** table and update its **Repo Layout** tree — both catalogues are hand-maintained (see CONTRIBUTING.md; `mode-builder`'s Step 5 covers both).
 
 ## Disclaimer
 

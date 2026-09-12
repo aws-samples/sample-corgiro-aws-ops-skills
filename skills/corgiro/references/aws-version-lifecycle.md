@@ -1,9 +1,6 @@
----
-name: aws-version-lifecycle
-description: Scrape AWS service version lifecycle and end-of-support dates from public documentation. Use when checking EOL dates, planning upgrades, or running end-of-support analysis for RDS, Aurora, EKS, Lambda, ElastiCache, OpenSearch, MSK, or Amazon MQ.
----
-
 # AWS Version Lifecycle
+
+Shared reference: how to scrape AWS service version lifecycle and end-of-support dates from public documentation. Used by `rds-eol-analysis`, `eks-eol-analysis`, and any mode that needs EOL dates or lifecycle pricing.
 
 ## Overview
 
@@ -128,11 +125,7 @@ Aurora and RDS have SEPARATE release calendars with DIFFERENT dates. Always use 
 
 ### Step 1: Fetch Version Lifecycle Data
 
-Use `web_fetch` to scrape the engine-specific documentation URL:
-
-```
-web_fetch(url="<ENGINE_PRIMARY_URL>", mode="full")
-```
+Fetch the engine-specific documentation URL with your web-fetch capability, retrieving the **complete page content** (release-calendar tables are often deep in the page — a summary or excerpt can silently drop rows). If no web-fetch capability is available, that is a scraping failure — apply the fail-stop rules below.
 
 ### Step 2: Parse Version Information
 
@@ -145,11 +138,7 @@ Extract from the page:
 
 ### Step 3: Fetch Extended Support Pricing (if applicable)
 
-For services with extended support, also scrape the pricing page:
-
-```
-web_fetch(url="<SERVICE_PRICING_URL>", mode="selective", search_terms="extended support")
-```
+For services with extended support, also fetch the service's pricing page and locate the extended-support pricing rows (search the page for "extended support").
 
 Extract:
 - Pricing unit (per vCPU-hour, per ACU-hour, per cluster-hour, etc.)
@@ -186,7 +175,7 @@ For every scrape, record:
 - **Versions extracted**: list of version-to-date pairs found
 - **Gaps**: any versions where dates could not be determined
 
-This data MUST be included in the calling SOP's methodology output.
+This data MUST be included in the calling mode's Methodology section.
 
 ## Error Handling - FAIL-STOP
 
@@ -206,7 +195,7 @@ If a date cannot be cited to a specific URL and scrape timestamp, it MUST NOT ap
 ## Best Practices
 
 1. **Always fetch fresh data** - don't reuse dates from previous runs
-2. **Use full mode for web_fetch** - ensures complete page content
+2. **Fetch complete page content** - summaries or excerpts can omit table rows
 3. **Match engine to URL** - Aurora resources MUST use Aurora URLs, RDS resources MUST use RDS URLs
 4. **Validate dates** - ensure dates parse correctly and are within reasonable range (within 5 years of today)
 5. **Record methodology** - every date must be traceable to a URL and scrape timestamp

@@ -74,7 +74,7 @@ Render per [`../../references/report-format.md`](../../references/report-format.
 ## Output
 
 \```
-./<mode-name>-<run_id>/
+./<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/<region>/<resource>.json
 ├── aggregated.json

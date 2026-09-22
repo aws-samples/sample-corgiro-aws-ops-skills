@@ -1,6 +1,6 @@
 ---
 name: corgiro
-description: "AWS Cloud Operations assistant for multi-account organizations. Inspect and manage AWS accounts across an entire AWS Organization — health events, end-of-support analysis, account coverage, and cross-account setup. Use when the user mentions AWS health events, RDS or EKS end-of-support, account coverage probe, multi-account setup, or types /corgiro <mode>. Each mode is documented in modes/<name>/MODE.md."
+description: "AWS Cloud Operations assistant for multi-account organizations. Inspect and manage AWS accounts across an entire AWS Organization — health events, end-of-support analysis, account coverage, and cross-account setup. Use when the user mentions AWS health events, RDS, EKS, or ElastiCache end-of-support, account coverage probe, multi-account setup, or types /corgiro <mode>. Each mode is documented in modes/<name>/MODE.md."
 license: MIT-0
 compatibility: "Requires AWS CLI v2. Operator sign-in uses IAM Identity Center (SSO), or an external SAML IdP (Azure AD/Entra ID, Okta, PingFederate, ADFS via aws-azure-login, saml2aws or similar) with the cross-account-role access mode. The cross-account-role access mode also needs read access to an AWS Organization. Reports are generated as Markdown/HTML — no additional runtime required."
 metadata:
@@ -21,6 +21,7 @@ Single namespace command for the Corgiro AWS Cloud Operations skill collection. 
 | `health-event-analysis` | `/corgiro health-event-analysis` | Analyze AWS Health Dashboard events across your entire Organization — open issues, scheduled changes, pattern analysis, and risk assessment.                                                                 |
 | `rds-eol-analysis`      | `/corgiro rds-eol-analysis`      | Identify RDS/Aurora instances approaching or past end-of-support across all accounts — prioritized risk report with upgrade recommendations and extended support cost estimates.                             |
 | `eks-eol-analysis`      | `/corgiro eks-eol-analysis`      | Identify Amazon EKS clusters on Kubernetes versions approaching or past end of standard support across all accounts — prioritized risk report with upgrade paths and extended support cost estimates.        |
+| `elasticache-eol-analysis` | `/corgiro elasticache-eol-analysis` | Identify Amazon ElastiCache caches on engine versions approaching or past end of standard support across all accounts — covers node-based clusters, replication groups, and serverless caches, with upgrade targets and Extended Support cost exposure. |
 | `ec2-compute-review`    | `/corgiro ec2-compute-review`    | Comprehensive EC2 operational health assessment across all accounts — instance type currency, Graviton eligibility, EBS optimization, security configuration, CloudWatch utilization, and snapshot coverage. |
 | `iam-security-review`   | `/corgiro iam-security-review`   | Org-wide IAM security review across all accounts — overly permissive policies/roles, IAM users with admin-equivalent access (direct, inline, or via group), stale or unused access keys, missing MFA, weak or missing password policy, root-account risks, automation/CI users on long-lived access keys (with keyless-auth remediation), and IAM Access Analyzer gaps. |
 | `bedrock-model-lifecycle` | `/corgiro bedrock-model-lifecycle` | Identify Bedrock foundation models that are deprecated or approaching legacy/extended-support across all accounts — shows which accounts and inference profiles are still using at-risk models.                                  |
@@ -141,8 +142,8 @@ AWS resource metadata (names, tags, descriptions, user-data fields) is attacker-
 
 - [`references/cross-account-defaults.md`](references/cross-account-defaults.md) — Default configuration values used across all modes.
 - [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field, plus operator-session dispatch on `authMethod` (keeps all modes access-mode- and IdP-agnostic); also defines the pre-flight security checks and reachability vocabulary.
-- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, ec2-compute-review).
-- [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis and eks-eol-analysis).
+- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, elasticache-eol-analysis, ec2-compute-review).
+- [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis, eks-eol-analysis, and elasticache-eol-analysis).
 
 ## Adding a new mode
 

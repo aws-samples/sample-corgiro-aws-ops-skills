@@ -19,6 +19,7 @@ Each sweep finds:
 - **AWS Health events** - org-wide risk assessment and pattern analysis
 - **RDS / Aurora end-of-support** - risk-prioritized upgrade recommendations
 - **Amazon EKS end-of-support** - Kubernetes version risk, upgrade paths, extended-support cost
+- **ElastiCache end-of-support** - Redis OSS engine version risk, upgrade targets, Extended Support cost exposure
 - **EC2 compute hygiene** - Assess EC2 fleet health across accounts in the organization. Evaluates instance generation, rightsizing
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
@@ -62,6 +63,7 @@ Check which accounts are reachable:
 | [`/corgiro health-event-analysis`](skills/corgiro/modes/health-event-analysis/) | AWS Health Dashboard analysis across your org or assigned accounts — risk assessment, pattern analysis, HTML report.                                                                                                                |
 | [`/corgiro rds-eol-analysis`](skills/corgiro/modes/rds-eol-analysis/)           | RDS/Aurora end-of-support analysis — risk-prioritized report with upgrade recommendations.                                                                                                                                          |
 | [`/corgiro eks-eol-analysis`](skills/corgiro/modes/eks-eol-analysis/)           | Amazon EKS end-of-support analysis — Kubernetes version risk, upgrade paths, and extended support cost estimates.                                                                                                                   |
+| [`/corgiro elasticache-eol-analysis`](skills/corgiro/modes/elasticache-eol-analysis/) | ElastiCache end-of-support analysis — Redis OSS engine version risk across node-based, replication-group, and serverless caches, upgrade targets, and Extended Support cost exposure (Valkey and Memcached reported as no-published-EOL). |
 | [`/corgiro ec2-compute-review`](skills/corgiro/modes/ec2-compute-review/)       | EC2 operational health assessment — instance type currency, Graviton eligibility, EBS optimization, security, CloudWatch utilization, and snapshot coverage.                                                                        |
 | [`/corgiro iam-security-review`](skills/corgiro/modes/iam-security-review/)     | Org-wide IAM security review — overly permissive policies/roles, IAM users with admin-equivalent access (direct, inline, or via group), stale or unused access keys, MFA gaps, password policy, root-account risks, automation/CI users on long-lived keys with keyless-auth remediation, and Access Analyzer gaps.                       |
 | [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |

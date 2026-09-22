@@ -4,7 +4,7 @@ How every report-producing Corgiro mode renders output, so reports look identica
 regardless of which mode produced them. Reports are **agent-authored, self-contained
 single-file HTML** — no scripts to run, no build step, no network calls.
 
-**Applies to:** `account-coverage`, `health-event-analysis`, `rds-eol-analysis`, `eks-eol-analysis`, `ec2-compute-review`.
+**Applies to:** `account-coverage`, `health-event-analysis`, `rds-eol-analysis`, `eks-eol-analysis`, `elasticache-eol-analysis`, `ec2-compute-review`.
 `setup-corgiro` prints a console summary only — it produces no report file.
 
 ## Rules

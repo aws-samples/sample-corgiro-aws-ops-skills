@@ -10,7 +10,7 @@ Produce a holistic, read-only security baseline across every reachable account i
 
 This mode is an **umbrella scorecard**. It covers identity at a summary level only (root MFA, root access keys, console users without MFA, password policy, IAM Access Analyzer presence). For deep identity analysis - admin-equivalent users and roles, stale keys, automation/CI key hygiene, keyless-auth remediation - run [`/corgiro iam-security-review`](../iam-security-review/MODE.md); this mode links to it rather than duplicating it.
 
-Most signals are **regional** (GuardDuty, Security Hub, EBS, RDS, AWS Config, security groups, IAM Access Analyzer) and are collected per region in scope. **Global** signals (IAM account summary, credential report, password policy, S3 buckets) are collected once per account. All identity (IAM) global calls run against `us-east-1`.
+Most signals are **regional** (GuardDuty, Security Hub, EBS, RDS, AWS Config, security groups, IAM Access Analyzer) and are collected per region in scope. **Global** signals (IAM account summary, credential report, password policy, S3 buckets, CloudTrail trails) are collected once per account. All identity (IAM) global calls run against `us-east-1`.
 
 ## Prerequisites
 
@@ -26,9 +26,12 @@ Some security services may not be enabled in an account or region. A disabled se
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `accounts` | _(all reachable - org-wide)_ | Explicit account-ID list to review. Omit (or `all`) to scan the whole org; provide IDs to scope to just those accounts. |
-| `regions` | `auto` | Region(s) to assess, or `auto` to discover active regions from spend/usage. Accepts a list. |
+| `regions` | `auto` | Region(s) to assess, or `auto` to discover each account's active regions from Cost Explorer spend (falls back to the shared `fallbackRegions`). Accepts a list. |
+| `include_unused_regions` | `false` | Also run the GuardDuty, AWS Config, and CloudTrail-coverage checks in enabled regions with no spend. |
 | `account_filter` | _(from config)_ | Include/exclude lists applied on top of `accounts` / the org scan. |
-| `severity_floor` | `low` | Lowest severity to include in the report (`low`, `medium`, `high`, `critical`). |
+| `severity_floor` | `low` | Lowest severity shown in the findings tables (`low`, `medium`, `high`, `critical`). Does not affect scores. |
+| `securityhub_failed_threshold` | `10` | Failed CRITICAL+HIGH Security Hub findings in a region at or above which `SECURITYHUB_LOW_SCORE` is raised. |
+| `config_noncompliance_pct` | `20` | Percentage of non-compliant AWS Config rules above which `CONFIG_HIGH_NONCOMPLIANCE` is raised. |
 | `max_parallel` | `4` | Concurrent accounts (hard ceiling 10). |
 | `output_format` | `both` | `markdown`, `html`, or `both`. |
 
@@ -40,19 +43,19 @@ Execute steps sequentially. Read the corresponding reference file before each st
 
 Read [`references/step-1-scope.md`](references/step-1-scope.md).
 
-Run the pre-flight security checks and session probe from [`../../references/credential-resolution.md`](../../references/credential-resolution.md). Read `accessMode` from config, resolve the review set from `~/.corgiro/state/roster.json` (honoring `accounts` and `account_filter`), discover active regions when `regions = auto`, and persist `scope.json`.
+Run the pre-flight security checks and session probe from [`../../references/credential-resolution.md`](../../references/credential-resolution.md). Read `accessMode` from config, resolve the review set from `~/.corgiro/state/roster.json` (honoring `accounts` and `account_filter`), discover each account's active regions when `regions = auto`, locate the IAM Access Analyzer delegated admin, and persist `scope.json`.
 
 ### Step 2: Collect security signals (per account + region)
 
 Read [`references/step-2-collect.md`](references/step-2-collect.md).
 
-For each in-scope account, resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (dispatch on the account's `via`), then run the read-only calls for each domain, up to `max_parallel` accounts concurrently. Persist each raw response under `per-account/<account_id>/`. Skip accounts that fail credential resolution; record them and continue.
+For each in-scope account, resolve credentials per [`../../references/credential-resolution.md`](../../references/credential-resolution.md) (dispatch on the account's `via`), then run the read-only calls for each domain, up to `max_parallel` accounts concurrently. Every findings query is filtered to the account and region being collected, so delegated-admin and aggregation setups do not double-count. Persist each raw response under `per-account/<account_id>/<region>/` (or `global/`). Skip accounts that fail credential resolution; record them and continue.
 
 ### Step 3: Score and prioritize
 
 Read [`references/step-3-score.md`](references/step-3-score.md).
 
-Map collected signals to findings with a severity, compute the six weighted domain scores and an overall A-F grade, and write `aggregated.json`.
+Map collected signals to flags (each in exactly one domain, with a severity), score each account's six domains and overall A-F grade, roll them up to org scores, and write `aggregated.json`.
 
 ### Step 4: Generate report
 
@@ -72,18 +75,20 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 ./<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/
-│   ├── guardduty-<region>.json
-│   ├── securityhub-<region>.json
-│   ├── account-summary.json
-│   ├── credential-report.csv
-│   ├── password-policy.json
-│   ├── access-analyzer-<region>.json
-│   ├── cloudtrail-<region>.json
-│   ├── config-<region>.json
-│   ├── s3-buckets.json
-│   ├── ebs-<region>.json
-│   ├── rds-<region>.json
-│   └── security-groups-<region>.json
+│   ├── global/
+│   │   ├── account-summary.json
+│   │   ├── credential-report.csv
+│   │   ├── password-policy.json
+│   │   ├── s3-buckets.json
+│   │   └── cloudtrail.json
+│   └── <region>/
+│       ├── guardduty.json
+│       ├── securityhub.json
+│       ├── access-analyzer.json
+│       ├── config.json
+│       ├── ebs.json
+│       ├── rds.json
+│       └── security-groups.json
 ├── aggregated.json
 ├── Security-Posture-Review-<DATE>.md
 └── Security-Posture-Review-<DATE>.html
@@ -99,8 +104,10 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 | A security service is not enabled (GuardDuty/Security Hub/Config/Access Analyzer) | Record as a finding (service disabled), continue with other checks |
 | `AccessDenied` on a specific API | Note which check was skipped for that account/region, continue with available data |
 | `get-account-password-policy` -> `NoSuchEntity` | Not an error - record as a "no password policy" finding |
-| S3 `get-bucket-encryption` -> `ServerSideEncryptionConfigurationNotFoundError` | Bucket has no default encryption - record as a finding |
-| S3 `get-public-access-block` -> `NoSuchPublicAccessBlockConfiguration` | Public Access Block not set - record as a finding |
-| Cost Explorer `AccessDenied` (region auto-discovery) | Under `identity-center-direct`, pass explicit `regions` instead of `auto` |
+| S3 `get-public-access-block` -> `NoSuchPublicAccessBlockConfiguration` | Block not set at that level - evaluate the effective (account OR bucket) block before flagging |
+| `generate-credential-report` not `COMPLETE` / `get-credential-report` -> `ReportInProgress` | Poll with short backoff (a few retries) until `COMPLETE`, then continue |
+| `get-trail-status` fails on an organization trail from a member account | Record status `unknown (org trail)`, not `CLOUDTRAIL_NOT_LOGGING`; note in Methodology |
+| `organizations list-delegated-administrators` denied | Org-level Access Analyzers cannot be detected; evaluate account analyzers only and note in Methodology |
+| Cost Explorer `AccessDeniedException` (region auto-discovery) | Under `identity-center-direct`, fall back to the shared `fallbackRegions` set and note it in `scope.json` |
 | `ThrottlingException` / `TooManyRequestsException` | Reduce `max_parallel`, apply exponential backoff (base 1s, cap 30s) |
 | No security services enabled anywhere | Generate the report showing the gaps - that IS the finding |

@@ -4,7 +4,7 @@
 
 Run the pre-flight security checks in [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md) (file permissions on `~/.corgiro/`, operator session freshness, and the authoritative `sts get-caller-identity` probe). Confirm the coverage snapshot is fresh and `~/.corgiro/config.json` exists. Fail fast with a clear message and the one-line fix if any check fails.
 
-Read `accessMode` from config so downstream steps know how each account is reached. Credential dispatch itself stays in `credential-resolution.md` - do not restate it here.
+Read `accessMode` and `authMethod` from config so downstream steps know how each account is reached. Credential dispatch itself stays in `credential-resolution.md` - do not restate it here.
 
 ## Determine the account set
 
@@ -17,20 +17,53 @@ Apply `account_filter` (config include/exclude) on top of either set. The manage
 
 ## Determine regions
 
-- `regions = auto`: discover active regions where the account has recent spend/usage. From the payer/management account:
-  ```bash
-  aws ce get-cost-and-usage \
-    --time-period Start=<30-days-ago>,End=<today> \
-    --granularity MONTHLY \
-    --metrics UnblendedCost \
-    --group-by Type=DIMENSION,Key=REGION \
-    --output json
-  ```
-  Keep regions with cost > 0; drop the `NoRegion`/`global` pseudo-region. Under `identity-center-direct` the operator often cannot query org-wide Cost Explorer - on `AccessDenied`, fall back to a sensible default set (e.g. `us-east-1`, plus any regions the operator passes) and note the fallback in `scope.json`.
-- `regions` explicit: use exactly those.
+Scope is a list of `{account_id, region}` pairs, not one org-wide region union.
 
-Global services (IAM account summary, credential report, password policy, S3 `list-buckets`) are collected once per account regardless of the region list; IAM global calls use `us-east-1`.
+If `regions = auto`, use Cost Explorer to discover account/region pairs with any spend in the last 30 days. Cost Explorer is a payer/org-level API, not a per-account call:
+
+- **`cross-account-role`:** query CE from the tooling/management session (delegated admin / payer access) - use local credentials, no per-account profile.
+- **`identity-center-direct`:** use a profile that has payer-level CE access (shown below as `<profilePrefix><payerAccountId>`); if none is available, skip `auto` and fall back to the shared `fallbackRegions` set.
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<30-days-ago>,End=<today> \
+  --granularity MONTHLY \
+  --metrics UnblendedCost \
+  --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
+  --region us-east-1 --output json
+  # cross-account-role: run with the tooling/management session (local creds)
+  # identity-center-direct: add --profile <profilePrefix><payerAccountId>
+```
+
+Keep pairs with cost > 0; drop the `NoRegion`/`global` pseudo-region.
+
+> **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to the shared `fallbackRegions` set (see [`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md)) for every in-scope account, and note the fallback in `scope.json`.
+
+If `regions` is explicit, pair every in-scope account with exactly those regions.
+
+### Unused regions
+
+Spend-based discovery skips regions an account does not use - yet GuardDuty or CloudTrail being off in an unused region is itself a security gap. When `include_unused_regions = true`, additionally list each account's enabled regions:
+
+```bash
+aws ec2 describe-regions --output json        # returns only regions enabled for the account
+```
+
+and run only the GuardDuty, AWS Config, and CloudTrail-coverage checks in those extra regions (tag them `unused` in `scope.json`). When `false` (default), the Methodology section must state that regions without spend were not checked.
+
+Global services (IAM account summary, credential report, password policy, S3 `list-buckets`, CloudTrail `describe-trails`) are collected once per account regardless of the region list; IAM global calls use `us-east-1`.
+
+## Resolve the IAM Access Analyzer delegated admin
+
+An `ORGANIZATION` analyzer exists only in the management or delegated-admin account, but it covers every member account. Look it up once, before fan-out, from the management account:
+
+```bash
+aws organizations list-delegated-administrators \
+  --service-principal access-analyzer.amazonaws.com --output json
+```
+
+Use the returned account (or the management account if none is delegated). Under `identity-center-direct` without management access, skip the lookup and note that org-level analyzers could not be detected. Record `accessAnalyzerAdmin` in `scope.json`; Step 2 lists its `ORGANIZATION` analyzers per region.
 
 ## Persist
 
-Write `scope.json` with: `run_id`, `access_mode`, the resolved account list, the region list (and whether it came from `auto` or was explicit, plus any CE fallback), `account_filter` applied, `severity_floor`, `max_parallel`, `output_format`, and any `skipped`/`not_in_roster` IDs.
+Write `scope.json` with: `run_id`, `access_mode`, the resolved `{account_id, region}` pairs (and whether regions came from `auto`, were explicit, or fell back to `fallbackRegions`; plus any `unused` regions), `accessAnalyzerAdmin`, `account_filter` applied, all parameter values, and any `skipped`/`not_in_roster` IDs.

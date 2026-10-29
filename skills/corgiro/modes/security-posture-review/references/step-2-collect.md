@@ -74,9 +74,9 @@ Aurora instances inherit encryption from their cluster - evaluate `StorageEncryp
 CloudTrail (global, once per account):
 ```bash
 aws cloudtrail describe-trails --include-shadow-trails --output json   # every trail visible to the account, incl. org trails
-aws cloudtrail get-trail-status --name <TrailARN> --output json        # IsLogging
+aws cloudtrail get-trail-status --name <TrailARN> --output json        # IsLogging; always the full ARN
 ```
-Dedupe by `TrailARN`. A region in scope is **covered** if a logging multi-region trail exists, or a logging single-region trail has that `HomeRegion`. If `get-trail-status` fails on an organization trail (`IsOrganizationTrail: true`) seen from a member account, record its status as `unknown (org trail)` - do not treat it as not logging. Save to `global/cloudtrail.json`: `{ trails: [{arn, isMultiRegion, isOrganizationTrail, logFileValidation, encrypted, isLogging: true|false|"unknown"}], uncoveredRegions: [region] }`.
+Dedupe by `TrailARN`. A region in scope is **covered** if a logging multi-region trail exists, or a logging single-region trail has that `HomeRegion`. Always pass the full `TrailARN` to `get-trail-status`: member accounts can read an organization trail's status by ARN from any region, but a bare name is resolved against the member's own account and fails with `TrailNotFoundException`. If `get-trail-status` still fails on an organization trail (`IsOrganizationTrail: true`), record its status as `unknown (org trail)` - do not treat it as not logging. Save to `global/cloudtrail.json`: `{ trails: [{arn, isMultiRegion, isOrganizationTrail, logFileValidation, encrypted, isLogging: true|false|"unknown"}], uncoveredRegions: [region] }`.
 
 AWS Config (per region):
 ```bash

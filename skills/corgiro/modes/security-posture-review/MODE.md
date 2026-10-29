@@ -106,7 +106,7 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 | `get-account-password-policy` -> `NoSuchEntity` | Not an error - record as a "no password policy" finding |
 | S3 `get-public-access-block` -> `NoSuchPublicAccessBlockConfiguration` | Block not set at that level - evaluate the effective (account OR bucket) block before flagging |
 | `generate-credential-report` not `COMPLETE` / `get-credential-report` -> `ReportInProgress` | Poll with short backoff (a few retries) until `COMPLETE`, then continue |
-| `get-trail-status` fails on an organization trail from a member account | Record status `unknown (org trail)`, not `CLOUDTRAIL_NOT_LOGGING`; note in Methodology |
+| `get-trail-status` -> `TrailNotFoundException` on an organization trail | Retry with the full `TrailARN` (a bare name fails from member accounts); if it still fails, record status `unknown (org trail)`, not `CLOUDTRAIL_NOT_LOGGING`; note in Methodology |
 | `organizations list-delegated-administrators` denied | Org-level Access Analyzers cannot be detected; evaluate account analyzers only and note in Methodology |
 | Cost Explorer `AccessDeniedException` (region auto-discovery) | Under `identity-center-direct`, fall back to the shared `fallbackRegions` set and note it in `scope.json` |
 | `ThrottlingException` / `TooManyRequestsException` | Reduce `max_parallel`, apply exponential backoff (base 1s, cap 30s) |

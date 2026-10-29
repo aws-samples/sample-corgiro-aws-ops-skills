@@ -51,9 +51,9 @@ aws s3api list-buckets --output json                            # each bucket ca
 aws s3control get-public-access-block --account-id <account_id> --output json   # account-level block
 # per bucket, addressed to its BucketRegion:
 aws s3api get-public-access-block --bucket <b> --output json     # NoSuchPublicAccessBlockConfiguration => not set
-aws s3api get-bucket-policy-status --bucket <b> --output json    # {"PolicyStatus":{"IsPublic":true|false}}; NoSuchBucketPolicy => no policy
+aws s3api get-bucket-policy-status --bucket <b> --output json    # {"PolicyStatus":{"IsPublic":true|false}} - evaluates the policy only; NoSuchBucketPolicy => no policy
 ```
-`NoSuchPublicAccessBlockConfiguration` on the account-level call means no account block is set. The **effective** block for a bucket is, per setting (`BlockPublicAcls`, `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`), account-level OR bucket-level; a bucket is `publicAccessNotBlocked` only if any effective setting is false. Bucket default encryption is not checked: S3 applies SSE-S3 to every bucket by default, so a missing encryption config does not mean unencrypted data. Save to `global/s3-buckets.json`: `{ totalBuckets, publicAccessNotBlocked: [name], publicPolicies: [name], accountPublicAccessBlock: {...} }`.
+`NoSuchPublicAccessBlockConfiguration` on the account-level call means no account block is set. The **effective** block for a bucket is, per setting (`BlockPublicAcls`, `IgnorePublicAcls`, `BlockPublicPolicy`, `RestrictPublicBuckets`), account-level OR bucket-level; a bucket is `publicAccessNotBlocked` only if any effective setting is false. `IsPublic` describes the bucket policy alone: a bucket goes in `publicPolicies` only if `IsPublic = true` **and** effective `RestrictPublicBuckets = false`; otherwise it goes in `publicPolicyNeutralized`. Bucket default encryption is not checked: S3 applies SSE-S3 to every bucket by default, so a missing encryption config does not mean unencrypted data. Save to `global/s3-buckets.json`: `{ totalBuckets, publicAccessNotBlocked: [name], publicPolicies: [name], publicPolicyNeutralized: [name], accountPublicAccessBlock: {...} }`.
 
 EBS (per region):
 ```bash
@@ -76,7 +76,7 @@ CloudTrail (global, once per account):
 aws cloudtrail describe-trails --include-shadow-trails --output json   # every trail visible to the account, incl. org trails
 aws cloudtrail get-trail-status --name <TrailARN> --output json        # IsLogging; always the full ARN
 ```
-Dedupe by `TrailARN`. A region in scope is **covered** if a logging multi-region trail exists, or a logging single-region trail has that `HomeRegion`. Always pass the full `TrailARN` to `get-trail-status`: member accounts can read an organization trail's status by ARN from any region, but a bare name is resolved against the member's own account and fails with `TrailNotFoundException`. If `get-trail-status` still fails on an organization trail (`IsOrganizationTrail: true`), record its status as `unknown (org trail)` - do not treat it as not logging. Save to `global/cloudtrail.json`: `{ trails: [{arn, isMultiRegion, isOrganizationTrail, logFileValidation, encrypted, isLogging: true|false|"unknown"}], uncoveredRegions: [region] }`.
+Dedupe by `TrailARN`, and record each trail's owner (the account ID in its ARN). A region in scope is **covered** if a multi-region trail, or a single-region trail with that `HomeRegion`, has `isLogging` of `true` or `"unknown"` (an org trail whose status cannot be read is assumed to cover - do not raise a false `CLOUDTRAIL_MISSING`). Always pass the full `TrailARN` to `get-trail-status`: member accounts can read an organization trail's status by ARN from any region, but a bare name is resolved against the member's own account and fails with `TrailNotFoundException`. If `get-trail-status` still fails on an organization trail (`IsOrganizationTrail: true`), record its status as `unknown (org trail)` - do not treat it as not logging. Save to `global/cloudtrail.json`: `{ trails: [{arn, ownerAccount, isMultiRegion, isOrganizationTrail, logFileValidation, encrypted, isLogging: true|false|"unknown"}], uncoveredRegions: [region] }`.
 
 AWS Config (per region):
 ```bash
@@ -95,7 +95,7 @@ aws iam generate-credential-report >/dev/null                   # returns State 
 aws iam get-credential-report --query Content --output text | base64 --decode > per-account/<account_id>/global/credential-report.csv
 aws iam get-account-password-policy --output json               # NoSuchEntity => no policy (a finding, not an error)
 ```
-If `generate-credential-report` is not yet `COMPLETE`, or `get-credential-report` returns `ReportInProgress`, poll with short backoff (a few retries) until it is ready. From the credential report, derive only: count of console users (`password_enabled=true`) with `mfa_active=false`, and the `<root_account>` row. The report contains no key material - nothing to mask. Save derived counts to `global/account-summary.json`.
+If `generate-credential-report` is not yet `COMPLETE`, or `get-credential-report` returns `ReportInProgress`, poll with short backoff (a few retries) until it is ready. From the credential report, derive only: count of console users (`password_enabled=true`) with `mfa_active=false`, and from the `<root_account>` row whether root still has credentials (`password_enabled = true`, or `access_key_1_active` / `access_key_2_active` true). Under centralized root access management (see `rootCredentialsManaged` in `scope.json`) member accounts have no root credentials and report `AccountMFAEnabled = 0` - that is not a finding. The report contains no key material - nothing to mask. Save derived values to `global/account-summary.json` (`{ rootMfa, rootAccessKeys, rootHasCredentials, consoleUsersWithoutMfa }`) and the raw password-policy response (or `NoSuchEntity`) to `global/password-policy.json`.
 
 IAM Access Analyzer (per region):
 ```bash
@@ -104,7 +104,7 @@ aws accessanalyzer list-analyzers --type ORGANIZATION --output json   # in scope
 aws accessanalyzer list-findings --analyzer-arn <arn> \
   --filter '{"status":{"eq":["ACTIVE"]},"resourceOwnerAccount":{"eq":["<account_id>"]}}' --output json
 ```
-A region is **covered** for an account if the account has an `ACCOUNT` analyzer there, or the admin account has an `ORGANIZATION` analyzer in that region. Query org-analyzer findings once per member account using the `resourceOwnerAccount` filter, so external-access findings land on the account that owns the resource, not the admin account. Save to `<region>/access-analyzer.json`: `{ covered, coveredBy: "account" | "organization" | null, externalFindings: [{resourceType, resource}] }`.
+A region is **covered** for an account if the account has an `ACCOUNT` analyzer there, or the admin account has an `ORGANIZATION` analyzer in that region. Query org-analyzer findings once per member account using the `resourceOwnerAccount` filter, so external-access findings land on the account that owns the resource, not the admin account. If both an account analyzer and the org analyzer report the same resource, keep one finding per resource ARN. Save to `<region>/access-analyzer.json`: `{ covered, coveredBy: "account" | "organization" | null, externalFindings: [{resourceType, resource}] }`.
 
 > Do NOT list access keys, admin roles, or per-user policies here - that is `iam-security-review`'s job. The report's Identity section links to it for depth.
 

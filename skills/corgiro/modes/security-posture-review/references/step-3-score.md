@@ -11,23 +11,23 @@ Each flag belongs to exactly one domain, so no signal is scored twice.
 | GUARDDUTY_DISABLED | No detector in a region | Threat Detection | High |
 | GUARDDUTY_HIGH_FINDINGS | >= 1 active, unarchived finding with severity >= 7 updated in the last 30 days | Threat Detection | High |
 | SECURITYHUB_DISABLED | `InvalidAccessException` in a region | Threat Detection | High |
-| ROOT_NO_MFA | `AccountMFAEnabled = 0` | Identity and Access | Critical |
+| ROOT_NO_MFA | `AccountMFAEnabled = 0` **and** root still has credentials (credential-report root row `password_enabled = true` or an active access key) | Identity and Access | Critical |
 | ROOT_ACCESS_KEYS | `AccountAccessKeysPresent = 1` | Identity and Access | Critical |
 | USERS_WITHOUT_MFA | >= 1 console user with `mfa_active = false` | Identity and Access | High |
 | NO_PASSWORD_POLICY | `NoSuchEntity` | Identity and Access | High |
-| EXTERNAL_ACCESS_DETECTED | >= 1 active Access Analyzer finding owned by the account | Identity and Access | High |
+| EXTERNAL_ACCESS_DETECTED | >= 1 active Access Analyzer finding owned by the account (deduped by resource ARN) | Identity and Access | High |
 | ACCESS_ANALYZER_DISABLED | Region not covered by an account or organization analyzer | Identity and Access | Medium |
 | EBS_DEFAULT_ENCRYPTION_OFF | `EbsEncryptionByDefault = false` | Data Protection | High |
 | RDS_UNENCRYPTED | Non-Aurora instance or Aurora cluster with `StorageEncrypted = false` | Data Protection | Medium |
 | EBS_UNENCRYPTED | Volume with `Encrypted = false` | Data Protection | Medium |
-| CLOUDTRAIL_MISSING | A region in scope is not covered by any trail | Logging and Monitoring | Critical |
-| CLOUDTRAIL_NOT_LOGGING | A trail with `IsLogging = false` (not `unknown`) | Logging and Monitoring | Critical |
+| CLOUDTRAIL_MISSING | A region in scope is not covered by any trail (see coverage rule in Step 2; an `unknown`-status org trail counts as covering) | Logging and Monitoring | Critical |
+| CLOUDTRAIL_NOT_LOGGING | A trail **owned by the account** with `IsLogging = false` (not `unknown`) | Logging and Monitoring | Critical |
 | CLOUDTRAIL_NOT_MULTIREGION | No multi-region trail in the account | Logging and Monitoring | Medium |
-| CLOUDTRAIL_NOT_ENCRYPTED | Trail without `KmsKeyId` | Logging and Monitoring | Medium |
+| CLOUDTRAIL_NOT_ENCRYPTED | Trail owned by the account without `KmsKeyId` | Logging and Monitoring | Medium |
 | CONFIG_DISABLED | No recorder, or recorder not recording, in a region | Logging and Monitoring | Medium |
-| CLOUDTRAIL_NO_VALIDATION | Trail with `LogFileValidationEnabled = false` | Logging and Monitoring | Low |
+| CLOUDTRAIL_NO_VALIDATION | Trail owned by the account with `LogFileValidationEnabled = false` | Logging and Monitoring | Low |
 | RDS_PUBLICLY_ACCESSIBLE | Instance with `PubliclyAccessible = true` | Network Security | Critical |
-| S3_PUBLIC_POLICY | Bucket with `PolicyStatus.IsPublic = true` | Network Security | Critical |
+| S3_PUBLIC_POLICY | Bucket with `PolicyStatus.IsPublic = true` and effective `RestrictPublicBuckets = false` | Network Security | Critical |
 | SG_OPEN_TO_INTERNET | Ingress from `0.0.0.0/0` or `::/0` to a sensitive port or all traffic | Network Security | Critical |
 | S3_PUBLIC_ACCESS_POSSIBLE | Any effective public-access-block setting is false | Network Security | High |
 | SECURITYHUB_LOW_SCORE | Failed CRITICAL+HIGH findings >= `securityhub_failed_threshold` in a region | Compliance | Medium |
@@ -35,6 +35,10 @@ Each flag belongs to exactly one domain, so no signal is scored twice.
 | CONFIG_HIGH_NONCOMPLIANCE | Non-compliant rules / total rules > `config_noncompliance_pct`% | Compliance | Low |
 
 Each finding carries: flag, domain, severity, account ID, region (or `global`), affected resources (name/ARN/ID, with a count), and a one-line remediation. A regional flag raised in several regions of the same account is one finding listing those regions.
+
+Trail-configuration flags (`CLOUDTRAIL_NOT_LOGGING`, `CLOUDTRAIL_NOT_ENCRYPTED`, `CLOUDTRAIL_NO_VALIDATION`) are raised only in the account that owns the trail (the account ID in its `TrailARN`). Member accounts that see an organization trail are not penalized for settings only the owner can change - if that trail stops logging, members lose coverage and get `CLOUDTRAIL_MISSING` instead.
+
+A `PolicyStatus.IsPublic = true` bucket whose effective `RestrictPublicBuckets` is true is listed as informational (public policy neutralized by Block Public Access), not flagged.
 
 ## Domain scores
 
@@ -52,7 +56,7 @@ Domain weights:
 Score **per account** first, then roll up:
 
 1. **Account domain score** = 100 minus deductions, floored at 0. Deduct once per distinct flag raised in that account (not per resource, not per region): Critical 40, High 25, Medium 10, Low 3.
-2. A domain is `n/a` for an account only when none of its services can be assessed (e.g. every call in it was `AccessDenied`). Redistribute its weight proportionally across that account's assessed domains.
+2. A domain is `n/a` for an account when **none of its checks produced data** - no regions were assessed, every call was `AccessDenied`, or every source service for it is disabled (e.g. Compliance when both Security Hub and AWS Config are off). A domain never scores 100 by default just because nothing was checked. Disabled-service flags (`SECURITYHUB_DISABLED`, `CONFIG_DISABLED`, ...) still count in their own domains. Redistribute an `n/a` domain's weight proportionally across that account's assessed domains.
 3. **Account overall** = weighted average of the account's assessed domains.
 4. **Org domain score** = mean of the account domain scores (ignoring `n/a`). Also record the lowest-scoring account per domain.
 5. **Org overall** = mean of the account overall scores.

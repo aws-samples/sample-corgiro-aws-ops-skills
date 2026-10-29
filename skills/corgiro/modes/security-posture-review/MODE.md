@@ -1,6 +1,6 @@
 ---
 name: security-posture-review
-description: "Assess security posture across every reachable account in the organization and produce a weighted scorecard (A-F) spanning threat detection, data protection, logging and monitoring, identity, network exposure, and compliance. Aggregates GuardDuty findings, Security Hub standards, S3/EBS/RDS encryption and public exposure, CloudTrail and AWS Config status, a light identity summary, and open security groups into one prioritized remediation roadmap. Use when the user wants a security baseline, posture review, security scorecard, or org-wide security health check. For deep IAM least-privilege analysis, defer to /corgiro iam-security-review."
+description: "Assess security posture across every reachable account in the organization and produce a weighted scorecard (A-F) spanning threat detection, data protection, logging and monitoring, identity, network exposure, and compliance. Aggregates GuardDuty findings, Security Hub standards, EBS/RDS encryption, S3/RDS public exposure, CloudTrail and AWS Config status, a light identity summary, and open security groups into one prioritized remediation roadmap. Use when the user wants a security baseline, posture review, security scorecard, or org-wide security health check. For deep IAM least-privilege analysis, defer to /corgiro iam-security-review."
 user-invocable: true
 ---
 
@@ -43,7 +43,7 @@ Execute steps sequentially. Read the corresponding reference file before each st
 
 Read [`references/step-1-scope.md`](references/step-1-scope.md).
 
-Run the pre-flight security checks and session probe from [`../../references/credential-resolution.md`](../../references/credential-resolution.md). Read `accessMode` from config, resolve the review set from `~/.corgiro/state/roster.json` (honoring `accounts` and `account_filter`), discover each account's active regions when `regions = auto`, locate the IAM Access Analyzer delegated admin, and persist `scope.json`.
+Run the pre-flight security checks and session probe from [`../../references/credential-resolution.md`](../../references/credential-resolution.md). Read `accessMode` from config, resolve the review set from `~/.corgiro/state/roster.json` (honoring `accounts` and `account_filter`), discover each account's active regions when `regions = auto`, locate the IAM Access Analyzer delegated admin, detect centralized root access, and persist `scope.json`.
 
 ### Step 2: Collect security signals (per account + region)
 
@@ -100,9 +100,10 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 
 | Symptom | Action |
 |---------|--------|
-| Credential resolution fails for one account | Skip, record in `scope.json` `skipped_accounts`, continue (see `credential-resolution.md`) |
+| Credential resolution fails for one account | Skip, record in `scope.json` `skipped`, continue (see `credential-resolution.md`) |
 | A security service is not enabled (GuardDuty/Security Hub/Config/Access Analyzer) | Record as a finding (service disabled), continue with other checks |
 | `AccessDenied` on a specific API | Note which check was skipped for that account/region, continue with available data |
+| Member account reports `AccountMFAEnabled = 0` but has no root password or keys | Centralized root access - not a finding (see Step 3 `ROOT_NO_MFA`) |
 | `get-account-password-policy` -> `NoSuchEntity` | Not an error - record as a "no password policy" finding |
 | S3 `get-public-access-block` -> `NoSuchPublicAccessBlockConfiguration` | Block not set at that level - evaluate the effective (account OR bucket) block before flagging |
 | `generate-credential-report` not `COMPLETE` / `get-credential-report` -> `ReportInProgress` | Poll with short backoff (a few retries) until `COMPLETE`, then continue |

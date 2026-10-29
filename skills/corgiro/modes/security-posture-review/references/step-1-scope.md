@@ -35,7 +35,7 @@ aws ce get-cost-and-usage \
   # identity-center-direct: add --profile <profilePrefix><payerAccountId>
 ```
 
-Keep pairs with cost > 0; drop the `NoRegion`/`global` pseudo-region.
+Keep pairs with cost > 0; drop the `NoRegion`/`global` pseudo-region. An in-scope account with no spend in any region (new account, billing lag) is paired with the shared `fallbackRegions` set instead of being left with no regions - otherwise its regional domains would never be checked.
 
 > **Payer-level caveat:** Under `identity-center-direct`, the operator may not have payer-level CE access. If CE returns `AccessDeniedException`, fall back to the shared `fallbackRegions` set (see [`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md)) for every in-scope account, and note the fallback in `scope.json`.
 
@@ -64,6 +64,16 @@ aws organizations list-delegated-administrators \
 
 Use the returned account (or the management account if none is delegated). Under `identity-center-direct` without management access, skip the lookup and note that org-level analyzers could not be detected. Record `accessAnalyzerAdmin` in `scope.json`; Step 2 lists its `ORGANIZATION` analyzers per region.
 
+## Detect centralized root access
+
+From the management account, check whether member-account root credentials are centrally managed:
+
+```bash
+aws iam list-organizations-features --output json    # EnabledFeatures contains "RootCredentialsManagement"
+```
+
+Record `rootCredentialsManaged: true|false` in `scope.json`. When `true`, member accounts normally have no root password or keys, and Step 3 does not raise `ROOT_NO_MFA` for them (it checks the credential report regardless). If the call is denied (e.g. no management access under `identity-center-direct`), record `unknown` - the credential-report check in Step 3 still prevents false positives.
+
 ## Persist
 
-Write `scope.json` with: `run_id`, `access_mode`, the resolved `{account_id, region}` pairs (and whether regions came from `auto`, were explicit, or fell back to `fallbackRegions`; plus any `unused` regions), `accessAnalyzerAdmin`, `account_filter` applied, all parameter values, and any `skipped`/`not_in_roster` IDs.
+Write `scope.json` with: `run_id`, `access_mode`, the resolved `{account_id, region}` pairs (and whether regions came from `auto`, were explicit, or fell back to `fallbackRegions`; plus any `unused` regions), `accessAnalyzerAdmin`, `rootCredentialsManaged`, `account_filter` applied, all parameter values, and any `skipped`/`not_in_roster` IDs.

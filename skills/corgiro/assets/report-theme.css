@@ -123,7 +123,7 @@ body {
   background: var(--zinc-50); padding: 10px 14px;
   border-bottom: 1px solid var(--zinc-200); white-space: nowrap;
 }
-.data-table tbody td { padding: 10px 14px; border-bottom: 1px solid var(--zinc-100); vertical-align: top; }
+.data-table tbody td { padding: 10px 14px; border-bottom: 1px solid var(--zinc-100); vertical-align: top; overflow-wrap: anywhere; }   /* long ARNs/IDs wrap instead of widening the table */
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--zinc-50); }
 .data-table .num  { text-align: right; font-variant-numeric: tabular-nums; }

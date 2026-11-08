@@ -71,9 +71,22 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 | limitation 3 | Route-table association, **not** VPC presence, determines effect. "All instances in the subnets associated with a route table associated with a gateway endpoint automatically use the gateway endpoint [...] Instances in subnets that aren't associated with these route tables use the public service endpoint, not the gateway endpoint." |
 | limitation source | same page, tier 1, current documentation |
 | proof_required | A private subnet whose route table sends `0.0.0.0/0` to a NAT gateway **and** which is not associated with an S3 or DynamoDB gateway endpoint route. Evaluate **per route table**, not per VPC. |
+| if_unprovable | "Identify the destinations of traffic through NAT. Where it is bound for an AWS service, use a VPC endpoint." Corgiro can prove the routing gap but never the destination mix, so this clause is used on essentially every run. |
 | evidence calls | `ec2:DescribeRouteTables`, `ec2:DescribeVpcEndpoints` (filter `vpc-endpoint-type=Gateway`), `ec2:DescribeNatGateways`, `ec2:DescribeSubnets` |
 | saving bound | Bounded by the S3/DynamoDB share of NAT egress, which no read-only API exposes. Report a bound and its condition, never a point estimate. |
 | effort | Low. Additive, no data-path change for other traffic. |
+
+**Recommendation text.** Do not write "use S3/DynamoDB gateway endpoints": that
+asserts a destination mix Corgiro cannot see. Write the routing gap as the
+verified fact, then the verification step, then the grounded economics:
+
+> "<N> private route tables in <vpcs> send `0.0.0.0/0` to a NAT gateway and are
+> not associated with an S3 or DynamoDB gateway endpoint route. Identify the
+> destinations of that NAT traffic. Where it is bound for an AWS service, add the
+> appropriate VPC endpoint: gateway endpoints for S3 and DynamoDB carry no
+> additional charge, interface endpoints break even around <X> GB/month per
+> service."
+
 
 ### L2 -- Interface (PrivateLink) endpoints for other AWS services
 
@@ -84,8 +97,9 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 | rate source | pricing API, service code `AmazonVPC` (tier 0) |
 | limitation | The hourly charge is per endpoint **per AZ**, so fixed cost scales with AZ count. The lever only pays off above a traffic threshold. |
 | proof_required | Per-destination-service split of NAT egress. |
+| if_unprovable | "Identify which AWS services dominate NAT egress, from VPC Flow Logs or from the workload owner. Add an interface endpoint for any service above the breakeven volume." |
 | evidence calls | none sufficient. The split is only in VPC Flow Logs, and `logs:FilterLogEvents` is denied by `CorgiroReadOnlyRole-DataPlaneDeny`. |
-| expected verdict | `INDETERMINATE` on a stock deployment. Report the breakeven and name the data gap. |
+| expected verdict | `SCOPED` on a stock deployment. State the boundary as a fact, give the breakeven, and give the action. Never phrase it as an apology. |
 | breakeven | `(0.01 x 730 x AZ_count) / (effective_nat_rate - endpoint_rate_per_GB)`. At list rates with 3 AZs: `$21.90 / $0.035` = ~626 GB/month per service. Recompute at the customer's effective rate. |
 | effort | Medium. Per-service, and DNS behaviour changes for the targeted service. |
 
@@ -97,8 +111,9 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 | rate | `$0.045` per NAT-hour (`M2YSHUBETB3JX4M4`, us-east-1) |
 | limitation | One NAT per AZ adds a full hourly charge each, so the fixed cost scales with AZ count. Consider `RegionalNatGateway-*` where automatic multi-AZ expansion is preferable. |
 | proof_required | NAT gateway count per VPC versus the set of in-use AZs for its private subnets. |
+| if_unprovable | n/a. Fully provable from `describe` calls. |
 | evidence calls | `ec2:DescribeNatGateways`, `ec2:DescribeSubnets` |
-| expected verdict | Frequently `NOT APPLICABLE`: most estates already run one NAT per AZ. Report it as already-implemented rather than omitting it. |
+| expected verdict | Frequently `ALREADY DONE`: most estates already run one NAT per AZ. Report it as implemented rather than omitting it, so the customer is not re-pitched it later. |
 | effort | Low to Medium. Route-table changes per subnet. |
 
 ---
@@ -117,6 +132,7 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 | grounding source | `compute-optimizer:GetEC2InstanceRecommendations` (tier 0). Supplies the verdict, the evidence and the limitations in one call. |
 | limitation | `performanceRisk`, `migrationEffort` and `platformDifferences`, all returned per recommendation option. |
 | proof_required | `finding == Overprovisioned`, with `utilizationMetrics` as the evidence and `lookBackPeriodInDays` as the window. |
+| if_unprovable | "Enable AWS Compute Optimizer (the basic tier is free) to identify which instances are over-provisioned and by how much. Rightsizing applies to any EC2 fleet; only the targets are unknown until it is enabled." |
 | evidence calls | `compute-optimizer:GetEC2InstanceRecommendations`. Fallback when not opted in: `cloudwatch:GetMetricData` on `CPUUtilization`, `NetworkIn`, `NetworkOut`, with stated thresholds. |
 | saving | gross `savingsOpportunity`; realizable `savingsOpportunityAfterDiscounts`, which already includes SP and RI discounts. |
 | effort | From `migrationEffort`. Usually requires a stop/start or replacement. |
@@ -131,9 +147,10 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 | rate after | `estimatedSavingsPercentage` and `estimatedMonthlySavings` from the recommendation. |
 | grounding source | `ce:GetSavingsPlansPurchaseRecommendation` (tier 0). Use `ce:GetReservationPurchaseRecommendation` for service-specific RIs. |
 | limitation | The commitment is binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda; EC2 Instance SP locks to family and region for a deeper discount. Carry `term` and `paymentOption` on the recommendation. |
-| proof_required | A material on-demand share in `purchase_mix` on a commitment-eligible service, **and** a non-empty purchase recommendation. One without the other is not a finding. |
+| proof_required | A material on-demand share in `purchase_mix` on a commitment-eligible service, **and** a non-empty purchase recommendation. |
+| if_unprovable | "AWS returned no purchase recommendation for this usage, which it declines to do on volatile or short usage history. Review the on-demand share directly and size a commitment against the stable baseline." |
 | evidence calls | `purchase_mix` from Step 3, plus the recommendation API. |
-| expected verdict | `INDETERMINATE` when the recommendation comes back empty: AWS declines to recommend on volatile or insufficient usage history, which is information, not an error. |
+| expected verdict | `QUANTIFIED` when a recommendation returns. `SCOPED` when it is empty: that is information about usage volatility, not an error. |
 | effort | Low to execute, high to reverse. Flag the term length as the real cost. |
 | notes | Run it only for commitment-eligible services. NAT, data transfer, EIP, S3 and CloudWatch are not eligible, so skip the call rather than reporting an empty result as a gap. |
 
@@ -158,6 +175,7 @@ Pricing SKU for the current path: `<sku>` (<region>).
 | limitation | |
 | limitation source | <url> (tier <n>, published <date> if tier 3) |
 | proof_required | |
+| if_unprovable | |
 | evidence calls | |
 | expected verdict | |
 | effort | |

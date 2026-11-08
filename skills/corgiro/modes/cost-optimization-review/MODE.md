@@ -95,7 +95,7 @@ because another mode owns them:
   granularity with resource-level diagnosis, not resource-level cost attribution.
 - **Anything requiring a denied action.** Flow-log traffic splits and
   log-content drivers are outside the read-only boundary. Reported
-  `INDETERMINATE`, never omitted.
+  `SCOPED`, never omitted.
 
 There is no domain taxonomy. The workflow is identical for every service, and
 report grouping comes from the decode step's `productFamily`.
@@ -166,9 +166,18 @@ Read [`references/step-6-confirm.md`](references/step-6-confirm.md).
 
 Fan out across the in-scope accounts, resolving credentials per
 [`../../references/credential-resolution.md`](../../references/credential-resolution.md),
-and gather each lever's required evidence from `describe`/`list` calls and
-CloudWatch metrics. Assign each lever exactly one verdict:
-`APPLICABLE`, `NOT APPLICABLE`, or `INDETERMINATE`. All three are reported.
+and gather each lever's evidence from `describe`/`list` calls, CloudWatch
+metrics and the recommendation APIs.
+
+Every lever that is **relevant to the product** is reported. Evidence decides the
+size and the targets, never the validity. The verdict records how far the
+measurement got: `QUANTIFIED`, `ALREADY DONE`, or `SCOPED`.
+
+**A recommendation must not assert an unverified premise.** Where the premise is
+unverified, the recommendation opens with the step that verifies it. "Use
+S3/DynamoDB gateway endpoints" claims a traffic destination Corgiro cannot see;
+"identify the destinations of traffic through NAT, and where it is bound for an
+AWS service use a VPC endpoint" does not.
 
 ### Step 7: Generate report
 
@@ -185,11 +194,13 @@ Sections, same order in both formats:
    view, rate basis, and accounts-covered versus accounts-in-roster.
 2. **Spend Profile** -- the ranked cost lines with decode result, effective rate,
    list rate, and purchase-type mix. Undecoded lines listed as unexplained spend.
-3. **Applicable Levers** -- grouped by `productFamily`. Per lever: the evidence,
-   the affected resources, gross and realizable saving, and the citation.
-4. **Not Applicable** -- the lever, and the evidence that rules it out.
-5. **Indeterminate** -- the lever, the missing data, and how to obtain it.
-6. **Per-Account Summary** -- spend and applicable levers per account.
+3. **Recommendations** -- grouped by cost line, so each line's levers stay
+   together. Per lever: verdict, the evidence with the call that produced it,
+   affected resources, gross and realizable saving, the citation, and the
+   recommendation text written per the composition rule.
+4. **Already Implemented** -- levers the evidence shows are done, so the
+   customer is not re-pitched them later.
+5. **Per-Account Summary** -- spend and open recommendations per account.
 7. **Remediation Roadmap** -- ordered by realizable saving, with effort.
 8. **Methodology** -- APIs called, CE source and rate basis, price-list versions
    and SKUs, documentation URLs with fetch timestamps, accounts skipped,
@@ -254,7 +265,7 @@ directory after writing: `chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*`.
 | Usage type does not decode | Report as unexplained spend with the near-miss codes. Never guess. See `aws-pricing-grounding.md` fail-stop. |
 | CE unit and price-record unit disagree | Wrong SKU resolved. Treat as undecoded. |
 | No citable source for a lever or its limitation | Drop the lever. Do not soften it to "consider ...". |
-| Lever evidence needs a denied action (for example `logs:FilterLogEvents`) | `INDETERMINATE` with the reason named. Never a silent drop. |
+| Lever evidence needs a denied action (for example `logs:FilterLogEvents`) | `SCOPED`. State the boundary as a fact, then give the recommendation with its verification step first. Never a silent drop, never an apology. |
 | Web access unavailable | Report Steps 3 and 4 output, state that lever research is unavailable, offer to accept operator-supplied documentation URLs. |
 | Credential resolution fails for one account | Skip, record in `scope.json`, continue, and count it in the coverage statement. |
 | `ThrottlingException` / `TooManyRequestsException` | Reduce `max_parallel`, exponential backoff (base 1s, cap 30s). |

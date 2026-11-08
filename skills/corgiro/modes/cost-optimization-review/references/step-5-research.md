@@ -84,7 +84,7 @@ Every lever carries limitation_source and limitation_source_date.
 
 If the ONLY source for a limitation is a blog older than ~18 months:
   - the lever ships flagged "limitation needs re-verification"
-  - and that limitation MUST NOT be used to mark the lever NOT APPLICABLE
+  - and that limitation MUST NOT be used to rule the lever out
 ```
 
 The second clause is the important one. A stale limitation can suppress a lever
@@ -103,7 +103,8 @@ Per lever, resolve:
 | `mechanism` | 1 | how the lever removes or reduces this charge |
 | `rate_after` | 0 | the replacement rate, from the pricing API. `$0.00` must still be cited to a doc. |
 | `limitation` | 1 (3 only if flagged) | what constrains it. The field that decides applicability. |
-| `proof_required` | derived | the exact observable condition that proves it applies here |
+| `proof_required` | derived | the exact observable condition that sizes it here |
+| `if_unprovable` | derived | the step the operator takes when `proof_required` is unobtainable. This becomes the first sentence of the recommendation. See the composition rule in [`step-6-confirm.md`](step-6-confirm.md). |
 | `effort` | 1 | Low / Medium / High, with what drives it |
 
 `proof_required` must be a condition a `describe` call can answer, stated
@@ -111,6 +112,22 @@ precisely. "VPCs without a gateway endpoint" is not precise enough: the
 documentation is explicit that subnet route-table association, not VPC presence,
 determines whether a gateway endpoint takes effect. Write the condition at the
 granularity the docs describe.
+
+`if_unprovable` is mandatory, not optional. Many levers rest on a premise no
+read-only API exposes, and that is the normal case rather than an edge case. The
+field holds the verification step the operator performs, phrased as an
+instruction:
+
+```
+lever            S3 / DynamoDB gateway endpoints
+proof_required   a private route table sending 0.0.0.0/0 to NAT and not
+                 associated with an S3 or DynamoDB gateway endpoint route
+if_unprovable    "Identify the destinations of traffic through NAT. Where it is
+                  bound for an AWS service, use a VPC endpoint."
+```
+
+Without `if_unprovable`, Step 6 has nothing to write except an assertion it
+cannot support or an apology. Both are the failure this mode exists to avoid.
 
 ## Breakeven, when a lever has a fixed cost
 
@@ -142,6 +159,7 @@ rate is not observable, so use list for that side and flag the assumption.
   "limitation_source":    { "url": "...", "tier": 1, "fetched": "2026-11-08",
                             "published": null, "flag": null },
   "proof_required":       "<a condition a describe call can answer>",
+  "if_unprovable":        "<the verification step, phrased as an instruction>",
   "effort":               "Low",
   "pricing_provenance":   { "sku": "...", "price_version": "..." }
 }

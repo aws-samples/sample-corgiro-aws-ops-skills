@@ -55,9 +55,12 @@ aws ce get-cost-and-usage \
   --filter '{"And":[
       {"Not":{"Dimensions":{"Key":"RECORD_TYPE",
                "Values":["Credit","Refund","Tax"]}}},
-      {"Dimensions":{"Key":"SERVICE","Values":["<resolved>","..."]}}
+      {"Dimensions":{"Key":"SERVICE","Values":["<resolved>","..."]}},
+      {"Dimensions":{"Key":"LINKED_ACCOUNT","Values":["<accounts_resolved>"]}}
     ]}' \
-  # drop the SERVICE clause and the And wrapper when services = all
+  # drop the SERVICE clause when services = all
+  # drop the LINKED_ACCOUNT clause when accounts = all
+  # drop the And wrapper when neither applies
   --billing-view-arn <billingViewArn>   # omit when null
   --region us-east-1 --output json
 ```

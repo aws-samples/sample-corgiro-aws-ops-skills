@@ -14,11 +14,24 @@ honest than a category, and it works identically for a payer, a Billing
 Conductor primary and a single account without Corgiro needing to understand
 any of their topologies.
 
-## Accounts for evidence (Step 6)
+## Resolve `accounts` first: it decides everything else
 
-Read `~/.corgiro/state/roster.json`. Take every entry with `reachable: true`, or
-every entry if the snapshot lacks the field (reachability is re-checked
-implicitly on the first call). Apply `account_filter` from config.
+Read `~/.corgiro/state/roster.json`, then resolve the analysis set:
+
+- **Org-wide (default)** -- `accounts` omitted or `all`: every roster entry with
+  `reachable: true`, or every entry if the snapshot lacks the field (reachability
+  is re-checked implicitly on the first call).
+- **Specific accounts** -- `accounts` is a list of account IDs or roster names.
+  Resolve each entry against the roster:
+  - a 12-digit ID present in the roster resolves directly
+  - a name is matched case-insensitively against roster `name` values. One
+    unambiguous match resolves silently; zero or several is a question, listing
+    the candidates. Never guess which account was meant.
+  - an ID or name not in the roster is skipped and recorded as `not_in_roster`.
+    Corgiro can only reach accounts set up by `setup-corgiro` and refreshed by
+    `account-coverage`.
+
+Apply `account_filter` from config on top of either set.
 
 Credential dispatch stays in
 [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
@@ -43,15 +56,26 @@ primary.
 
 So ask, once, and cache the answer:
 
-> "Which account should I read organization-wide cost from?
->  1. the payer / management account
->  2. the account where you view your organization's bill, if you are billed
->     through a distributor or solution provider
->  3. this account only"
+Ask only when it is actually needed, which is when **both** of these hold: the
+analysis is org-wide, and no answer is cached in config. A scoped analysis
+against a cached source needs no question at all.
 
-The operator does not need to know what Billing Conductor is to answer option 2,
-and Corgiro does not need to know either. The verification step below determines
-what that account can actually see.
+> "Which account should I read organization-wide cost from? Give me the account
+>  ID.
+>
+>  Usually your payer or management account. If you are billed through a
+>  distributor or solution provider, it is the account where you view your
+>  organization's bill."
+
+One question, one answer type. The operator does not need to know what Billing
+Conductor is, and Corgiro does not need to know either: the verification step
+below determines what that account can actually see.
+
+For a **scoped** analysis, prefer the cached org-wide source filtered with a
+`LINKED_ACCOUNT` dimension filter over querying each account's own Cost Explorer.
+One source means one rate basis, far fewer requests, and no dependence on the
+payer having enabled member-account access. Fall back to per-account Cost
+Explorer only when no org-wide source is available.
 
 Cache under a `costAnalysis` block in `~/.corgiro/config.json`:
 
@@ -147,6 +171,9 @@ Write `scope.json`:
   "rate_basis":        "chargeable",
   "metric":            "AmortizedCost",
   "lookback_months":   3,
+  "accounts":          "all",
+  "accounts_resolved": [],
+  "not_in_roster":     [],
   "services":          "all",
   "services_resolved": [],
   "top_n":             10,

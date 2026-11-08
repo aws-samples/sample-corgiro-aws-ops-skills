@@ -187,13 +187,35 @@ aws ce get-cost-and-usage \
   --region us-east-1 --output json
 ```
 
-```
-coverage = SavingsPlanCoveredUsage / (SavingsPlanCoveredUsage + Usage)
+Resolve the record-type values rather than assuming them, the same way service
+names and usage-type codes are resolved:
+
+```bash
+aws ce get-dimension-values \
+  --dimension RECORD_TYPE \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --billing-view-arn <billing_view_arn> \
+  --region us-east-1 --output json
 ```
 
-`DiscountedUsage` is the RI equivalent. `SavingsPlanRecurringFee`,
-`SavingsPlanNegation`, `RIFee` and `Fee` are commitment accounting lines, not
-usage: exclude them from the denominator.
+Then classify the returned values into two buckets and compute from those:
+
+```
+covered-usage values      anything denoting usage paid for by a commitment
+                          (a Savings Plan covered-usage value, the RI
+                          discounted-usage value)
+on-demand usage value     plain usage
+accounting values         commitment fees, negations and upfront charges.
+                          EXCLUDE from the denominator: they are not usage.
+
+coverage = covered-usage / (covered-usage + on-demand usage)
+```
+
+> **Do not hardcode the value strings.** They are AWS-controlled and change as
+> commitment products are added, exactly like usage-type codes. If a returned
+> value cannot be classified into one of the three buckets, report the coverage
+> figure as unavailable for that line rather than guessing which bucket it
+> belongs in.
 
 Skip this call for lines on services that cannot be covered by a commitment
 (NAT, data transfer, EIP, S3, CloudWatch). An empty result there is not a gap.
@@ -204,14 +226,26 @@ Only when the operator asked why costs changed:
 
 ```bash
 aws ce get-cost-comparison-drivers \
-  --baseline-time-period Start=<prev_start>,End=<prev_end> \
-  --comparison-time-period Start=<curr_start>,End=<curr_end> \
+  --baseline-time-period   Start=2026-09-01,End=2026-10-01 \
+  --comparison-time-period Start=2026-10-01,End=2026-11-01 \
   --metric-for-comparison AmortizedCost \
+  --billing-view-arn <billing_view_arn> \
   --region us-east-1 --output json
 
 aws ce get-anomalies --date-interval StartDate=<start>,EndDate=<end> \
   --region us-east-1 --output json
 ```
+
+> **Both periods must be exactly one calendar month.** The API states the
+> interval "must start and end on the first day of a month, with a duration of
+> exactly one month", and `End` is exclusive. An arbitrary range fails
+> validation, so derive the two periods from calendar month boundaries rather
+> than from `lookback_months`. The literal dates above are the shape, not values
+> to copy.
+
+`--metric-for-comparison` is required. Valid values are `AmortizedCost`,
+`BlendedCost`, `NetAmortizedCost`, `NetUnblendedCost`, `NormalizedUsageAmount`,
+`UnblendedCost` and `UsageQuantity`. Pass the run's `metric`.
 
 `get-cost-comparison-drivers` returns the factors driving change between two
 periods within the last 13 months (38 with multi-year data enabled), including

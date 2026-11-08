@@ -156,7 +156,7 @@ for this product are researched live and not yet cached here.
 | mechanism | Commit to a 1 or 3 year hourly spend in exchange for a discounted rate on matching usage. |
 | grounding source | CE commitment coverage from Step 3 Call 4 (tier 0) for the gap; documentation (tier 1) for the SP-type trade-offs. |
 | limitation | Binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda across accounts and regions; EC2 Instance SP gives a deeper discount but locks instance family and region. |
-| proof_required | The uncovered on-demand share, from `SavingsPlanCoveredUsage / (SavingsPlanCoveredUsage + Usage)`. |
+| proof_required | The uncovered on-demand share, from the `RECORD_TYPE` classification in Step 3 Call 4. Do not hardcode the value strings; Step 3 resolves them. |
 | if_unprovable | n/a. Coverage is always measurable from CE. |
 | evidence calls | Step 3 Call 4 only. |
 | expected verdict | **Always `SCOPED`.** The gap is verified; the commitment size is not knowable at this scope. |

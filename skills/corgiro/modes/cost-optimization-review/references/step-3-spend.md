@@ -90,6 +90,26 @@ from a second call filtered to the selected codes rather than from one wide call
 Drop the `NoRegion` / `global` pseudo-region from the region set, but keep its
 cost in the line total.
 
+### Measure cost coverage here
+
+The distinct `LINKED_ACCOUNT` values this call returns are the accounts the CE
+source account can actually see cost for. Count them and compare to the roster:
+
+```
+accounts_with_cost   distinct LINKED_ACCOUNT values returned
+accounts_in_roster   roster size after account_filter
+```
+
+Both go in `spend-profile.json` and in the report header. This replaces any
+attempt to classify what the CE source account "is": a payer, a Billing
+Conductor billing-group primary whose group spans every account, and a single
+account all report their true coverage through the same count, with no need to
+understand their topology.
+
+A roster account with no cost in the window is normal (new account, billing lag)
+and is not a coverage gap. A roster account the CE source cannot see at all is a
+coverage gap, and the report says which.
+
 ## Call 3: precise coverage, for commitment-eligible lines only
 
 `PURCHASE_TYPE` gives a readable On Demand / Reserved / Savings Plans split, which
@@ -187,7 +207,8 @@ Present the profile and take one confirmation. The cost lines are unknown until
 now, so this is the first point at which a question has information behind it.
 
 ```
-SPEND PROFILE   14 of 14 accounts · 4 regions · AmortizedCost · chargeable
+SPEND PROFILE   cost: 14 of 14 roster accounts · 4 regions · AmortizedCost
+                rate basis: chargeable
                 CE source 111111111111 (org) · Aug-Oct 2026
                 services: all
 

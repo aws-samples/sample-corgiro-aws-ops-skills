@@ -6,7 +6,13 @@ account the cost comes from.
 ## Terminology
 
 - **CE source account** -- the account Cost Explorer is queried from.
-- **CE scope** -- what that account can see: `org`, `billing-group`, or `self`.
+
+There is deliberately no label for "what it can see". Coverage is measured, not
+classified: Step 3 counts the distinct `LINKED_ACCOUNT` values Cost Explorer
+actually returns and compares them to the roster. "14 of 14 accounts" is more
+honest than a category, and it works identically for a payer, a Billing
+Conductor primary and a single account without Corgiro needing to understand
+any of their topologies.
 
 ## Accounts for evidence (Step 6)
 
@@ -39,20 +45,19 @@ So ask, once, and cache the answer:
 
 > "Which account should I read organization-wide cost from?
 >  1. the payer / management account
->  2. a Billing Conductor primary account (common if you are billed through a
->     distributor or solution provider; rates will be proforma, not invoice)
->  3. this account only (single-account scope)
->  4. I don't know"
->
-> On 4, explain: it is the account where you look at the organization's bill in
-> the Billing console. Do not guess on the operator's behalf.
+>  2. the account where you view your organization's bill, if you are billed
+>     through a distributor or solution provider
+>  3. this account only"
+
+The operator does not need to know what Billing Conductor is to answer option 2,
+and Corgiro does not need to know either. The verification step below determines
+what that account can actually see.
 
 Cache under a `costAnalysis` block in `~/.corgiro/config.json`:
 
 ```json
 "costAnalysis": {
   "ceSourceAccountId": "111111111111",
-  "ceScope":           "org",
   "billingViewArn":    null,
   "rateBasis":         "chargeable"
 }
@@ -88,12 +93,27 @@ Call 3 is self-describing: it returns only views the caller can see, and
 
 | Result | Action |
 |---|---|
-| a `BILLING_GROUP` view is present | use its `arn` as `BillingViewArn`. `rateBasis: proforma`, `ceScope: billing-group`. |
-| only `PRIMARY` | `rateBasis: chargeable`. `ceScope` is `org` if the account is the payer, else `self`. |
+| a `BILLING_GROUP` view is present | use its `arn` as `BillingViewArn` and set `rateBasis: proforma`. |
+| only `PRIMARY` | `rateBasis: chargeable`. |
 | call denied, or `billing:*` absent from `ReadOnlyAccess` | ask the operator for the billing view ARN. Nothing else changes. |
 
 Pass the resolved ARN as `BillingViewArn` on `ce:GetCostAndUsage` so the scope is
 explicit rather than implied by whichever account happened to be used.
+
+> **`rateBasis` is derived, never offered as a choice.** A Billing Conductor
+> billing group member "cannot view historical, billable cost and usage data in
+> Cost Explorer"
+> (https://docs.aws.amazon.com/help-panel/billingconductor/latest/console/hp-billing-group-type.html),
+> so when a `BILLING_GROUP` view is present, proforma is the only view available
+> and the report states it as a fact. Do not ask the operator to pick between
+> chargeable and proforma: on this path there is nothing to pick.
+
+> **Commitment coverage stays valid at billing-group scope.** A billing group's
+> "pro forma usage is computed as its own consolidated billing family", sharing
+> Reserved Instance and Savings Plans benefits "only within the group"
+> (https://docs.aws.amazon.com/billingconductor/latest/userguide/creating-abc.html).
+> So the coverage figure measured from a billing-group view is the correct one
+> for those accounts, not a degraded proxy for a payer-wide number.
 
 If calls 1 or 2 fail, **re-ask**. Do not silently fall back to a narrower scope:
 a per-account sweep presented as organization-wide is worse than a hard stop.
@@ -123,7 +143,6 @@ Write `scope.json`:
   "run_id":            "cost-optimization-review-20261108-184500",
   "access_mode":       "cross-account-role",
   "ce_source_account": "111111111111",
-  "ce_scope":          "org",
   "billing_view_arn":  null,
   "rate_basis":        "chargeable",
   "metric":            "AmortizedCost",
@@ -140,6 +159,7 @@ Write `scope.json`:
 }
 ```
 
-`accounts_in_roster` versus `accounts_in_scope` is printed in the report header.
-A run covering 9 of 14 accounts is not an organization-wide analysis and must not
-read like one.
+`accounts_in_roster` is the evidence fan-out set, from the roster. It is not the
+same as cost coverage: Step 3 separately counts the accounts Cost Explorer
+returns cost for, and both numbers appear in the report header. A run covering 9
+of 14 accounts is not an organization-wide analysis and must not read like one.

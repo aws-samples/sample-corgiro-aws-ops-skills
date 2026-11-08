@@ -56,12 +56,11 @@ primary.
 
 So ask, once, and cache the answer:
 
-Ask only when it is actually needed, which is when **both** of these hold: the
-analysis is org-wide, and no answer is cached in config. A scoped analysis
-against a cached source needs no question at all.
+Resolve one CE source account on every run, regardless of what `accounts` is set
+to. Ask once, cache the answer, and ask again only if the cached account becomes
+unreachable.
 
-> "Which account should I read organization-wide cost from? Give me the account
->  ID.
+> "Which account should I read cost from? Give me the account ID.
 >
 >  Usually your payer or management account. If you are billed through a
 >  distributor or solution provider, it is the account where you view your
@@ -71,11 +70,13 @@ One question, one answer type. The operator does not need to know what Billing
 Conductor is, and Corgiro does not need to know either: the verification step
 below determines what that account can actually see.
 
-For a **scoped** analysis, prefer the cached org-wide source filtered with a
-`LINKED_ACCOUNT` dimension filter over querying each account's own Cost Explorer.
-One source means one rate basis, far fewer requests, and no dependence on the
-payer having enabled member-account access. Fall back to per-account Cost
-Explorer only when no org-wide source is available.
+> **Resolve the source even for a scoped analysis.** Reading one source and
+> adding a `LINKED_ACCOUNT` filter is strictly better than querying each
+> account's own Cost Explorer: one rate basis, far fewer requests, and no
+> dependence on the payer having enabled member-account access, which is an
+> org-wide all-or-none setting. Skipping the question on a scoped run only defers
+> it, and the deferred version fails mid-run after burning calls. Per-account
+> Cost Explorer is a fallback, never a default.
 
 Cache under a `costAnalysis` block in `~/.corgiro/config.json`:
 

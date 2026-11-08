@@ -44,22 +44,20 @@ from anywhere.
   [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch)
   for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
-- **An account that can read the cost you want analyzed**, already in the roster
+- **One account that can read the cost you want analyzed**, already in the roster
   and reachable. Satisfied at setup time: this mode does not arrange access it
   was not granted.
-  - For an **org-wide** analysis (`accounts` omitted or `all`), that account must
-    see the whole organization's cost. Usually the payer. For customers billed
-    through a distributor or solution provider, the account where they view their
-    organization's bill, where rates are **proforma** rather than invoice and the
-    report says so.
-  - For a **scoped** analysis (`accounts` is a list), the same source filtered to
-    those accounts is preferred. Failing that, each account's own Cost Explorer,
-    which requires the payer to have granted member accounts access, an org-wide
-    all-or-none setting.
 
-  If nothing suitable is reachable, stop and report which accounts were tried.
-  Extending coverage to the payer is a setup decision for whoever provisioned
-  Corgiro, not an action this mode or its operator should take from here.
+  Usually the payer. For customers billed through a distributor or solution
+  provider, the account where they view their organization's bill, where rates
+  are **proforma** rather than invoice and the report says so. For a
+  single-account customer, their account.
+
+  The same source is used whether the analysis is org-wide or scoped to specific
+  accounts; `accounts` only adds a `LINKED_ACCOUNT` filter. If nothing suitable
+  is reachable, stop and report which accounts were tried. Extending coverage to
+  the payer is a setup decision for whoever provisioned Corgiro, not an action
+  this mode or its operator should take from here.
 - **Web access.** Step 5 fetches AWS documentation. Without it, Steps 3 and 4
   still run and the mode reports decoded spend with lever research unavailable.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md),
@@ -72,7 +70,7 @@ from anywhere.
 | Parameter | Default | Description |
 |---|---|---|
 | `accounts` | _(all reachable -- org-wide)_ | Explicit account list. Omit (or `all`) to analyze the whole org; provide account IDs or roster names to scope to just those. Names are resolved against the roster, never guessed. |
-| `ce_source_account` | _(from config, else ask)_ | Account Cost Explorer is queried from. Required only for an org-wide analysis; a scoped analysis reads the same source filtered to those accounts, or their own Cost Explorer. Asked once and cached, never auto-detected. See Step 2. |
+| `ce_source_account` | _(from config, else ask)_ | The one account Cost Explorer is queried from, whatever `accounts` is set to. Asked once and cached, never auto-detected. See Step 2. |
 | `metric` | `AmortizedCost` | `AmortizedCost`, `NetAmortizedCost`, `UnblendedCost`. See Step 3 for why the default matters. |
 | `lookback_months` | `3` | Months of history for the spend profile (`1`, `3`, `6`, `12`). |
 | `services` | `all` | Restrict the analysis to specific AWS services. Accepts a list. Names are resolved against the customer's actual spend, never assumed. See Step 3. |

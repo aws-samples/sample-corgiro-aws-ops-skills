@@ -1,48 +1,187 @@
 # Step 3: Analyze Spend
 
-All Cost Explorer calls for the analysis run here, from the CE source account
-resolved in Step 2. Step 2 issues one small CE probe to verify that account is
-usable; this step does the work.
+This step runs in two phases that share Step 1 and Step 2 and diverge here:
 
-## Why `AmortizedCost` is the default
+- **Overview** — rank services, name themes, produce a short overview report.
+  Ends at the service-selection gate. Independently useful; can be the whole
+  run via `--overview-only`.
+- **Drill** — the operator has picked **one** service. Within that service,
+  break down usage types, derive purchase/record-type mix, and attribute to
+  accounts and regions. Ends at the decode confirmation gate.
 
-`UnblendedCost` classifies No Upfront RI recurring charges as "On Demand
-Instances", because the hourly fee is billed after usage. A customer at 80% RI
-coverage can look like 20%. `AmortizedCost` attributes commitment spend
-correctly.
+Credentials, source accounts and the metric rule are defined in
+[`access-pattern.md`](access-pattern.md). Do not restate them.
 
-Use `NetAmortizedCost` when the operator wants negotiated-discount-adjusted
-figures. Use `UnblendedCost` only on explicit request, and state the caveat.
+## Metric
 
-## Resolve `services` first, if it is set
+`AmortizedCost` by default, at every tier the Step 2 cascade produced. **No
+silent fallback to `UnblendedCost`** — if an amortized query returns
+`DataUnavailableException`, Step 2 had already made that a hard stop. If the
+operator passed `--metric UnblendedCost` as an explicit override, use it; the
+report header and Methodology section record the override and its caveat
+(misattributes No Upfront RI recurring charges to On Demand, which makes
+commitment-coverage figures in Call 4 unreliable when coverage is non-zero).
 
-CE service names are exact strings (`Amazon Relational Database Service`, not
-"RDS"). Do not construct them. Enumerate what the customer actually spends on and
-match against that:
+All CE calls in this step accept the same optional `--billing-view-arn` that
+Step 2 derived; pass it when `billing_view_arn` is non-null in `scope.json`.
+
+## Phase A: Overview
+
+The overview is one CE call plus two small enrichment calls. It never decodes
+a usage type and never calls `describe`/`list`. Its purpose is to rank
+services honestly and produce the artifact a TAM can read on its own.
+
+### Call A1 — rank services
 
 ```bash
-aws ce get-dimension-values \
-  --dimension SERVICE \
+aws ce get-cost-and-usage \
   --time-period Start=<lookback_start>,End=<this_month_start> \
-  --billing-view-arn <billingViewArn> \
+  --granularity MONTHLY \
+  --metrics AmortizedCost UsageQuantity \
+  --group-by '[{"Type":"DIMENSION","Key":"SERVICE"}]' \
+  --filter '{"Not":{"Dimensions":{"Key":"RECORD_TYPE",
+             "Values":["Credit","Refund","Tax"]}}}' \
+  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
 ```
 
-Match each operator-supplied name case-insensitively against the returned values
-and their obvious short forms. One unambiguous match resolves silently. Zero
-matches, or more than one, is a question:
+Aggregate across the lookback window by **averaging, not summing**:
 
-> "`RDS` could be: Amazon Relational Database Service, Amazon RDS Service Proxy.
->  Which did you mean?"
+```
+service_monthly_avg = sum(AmortizedCost across N months) / N
+```
 
-Never substitute a near match on the operator's behalf. Record both the input and
-the resolved CE value in `scope.json`.
+Rank descending by `service_monthly_avg`. Apply `min_service_usd` (default
+`50`) as a pre-selection threshold — services below it are marked "below
+threshold" rather than dropped from display, because the operator may still
+pick one. `top_n` applies **within** a chosen service in Phase B and does not
+apply to the overview ranking (every service above the threshold is shown).
 
-With `services` resolved, `top_n` and `min_finding_usd` apply **within** the
-filtered set. Otherwise a drill-down into RDS would return the top 10 lines
-org-wide and then discard the ones that are not RDS.
+### Call A2 — accounts visible to this source
 
-## Call 1: the cost lines
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost \
+  --group-by '[{"Type":"DIMENSION","Key":"LINKED_ACCOUNT"}]' \
+  [--billing-view-arn <arn>] \
+  --region us-east-1 --output json
+```
+
+Record the distinct `LINKED_ACCOUNT` values as `accounts_visible`. On tier 3
+(per-account), `accounts_visible` is computed differently — it is the number
+of accounts whose per-account CE call returned data, carried forward from
+`tier3_status` in `scope.json`. A tier 3 run captioned "organization-wide"
+when only a subset succeeded is wrong; the honest figure is "N of M in
+scope".
+
+### Call A3 — org-level commitment coverage (RECORD_TYPE)
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost \
+  --group-by '[{"Type":"DIMENSION","Key":"RECORD_TYPE"}]' \
+  [--billing-view-arn <arn>] \
+  --region us-east-1 --output json
+```
+
+Resolve the record-type values rather than assuming them:
+
+```bash
+aws ce get-dimension-values \
+  --dimension RECORD_TYPE \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  [--billing-view-arn <arn>] \
+  --region us-east-1 --output json
+```
+
+Classify into three buckets exactly as Step 3 Call 4 does (see Phase B
+below), and compute org-level coverage. **Do not hardcode the value strings;
+Slack has been known to add new ones as commitment products launch.** If a
+returned value cannot be classified, mark org coverage "unavailable" rather
+than guessing.
+
+### Themes
+
+The overview report calls out patterns the service ranking alone would miss.
+Themes are **derived from Call A1 output + scope.json**, not researched:
+
+- **Extended support footprint.** Any service whose name or whose top
+  usage-type substrings include `ExtendedSupport`, `extendedSupport`, or
+  `extended-support` is flagged. Sum the ExtendedSupport portion across
+  services and report as "`$X/mo`, `Y%` of org total". This is the single
+  highest-signal theme most TAMs can act on, and it is visible without
+  decoding anything.
+- **Commitment coverage.** From Call A3. "Zero RI/SP coverage anywhere" is a
+  theme; so is "X% covered, Y% uncovered". The uncovered amount is a sizing
+  figure, not a purchase recommendation.
+- **Services with many usage types.** If any service has more than a
+  configurable threshold (default 20) of distinct usage types in Call A1
+  output, it is flagged as "sprawling" — this is the pattern that produced
+  the original mode's "fragmentation below threshold" bug when ranking was
+  by usage type. The theme is informational: the service's cost may be
+  significant even when no single usage type is.
+
+### Overview report
+
+Rendered per [`../../../references/report-format.md`](../../../references/report-format.md).
+Sections:
+
+1. **KPI cards** — org total /mo, services count, commitment coverage,
+   extended-support footprint /mo, days to the nearest scheduled rate change
+   if any was researched during overview (none are by default).
+2. **Service ranking table** — service, $/mo, share, # usage types, billed
+   unit (first-ranked within the service, chosen by $/mo).
+3. **Themes** — the list above, each with its figure.
+4. **Coverage statement** — CE source tier, `rate_basis`,
+   `accounts_visible of accounts_in_scope`, lookback window, metric and any
+   override.
+5. **Recommended drill-downs** — a prose paragraph suggesting which services
+   to analyze first, with the reason (big + growing, infrastructure service
+   with lever variety, extended-support bearing). Not deterministic; this is
+   the agent's judgment, surfaced as recommendations rather than defaults.
+6. **Methodology** — APIs called (three CE calls), what was not covered
+   (decode, research, per-resource evidence).
+
+Output path: `./<run_id>/Cost-Optimization-Review-Overview-<DATE>.{html,md}`.
+
+### Service-selection gate
+
+After rendering, present a gate. The exact wording:
+
+```
+OVERVIEW COMPLETE.  Which service should I drill into?
+
+   recommended    <service-A>  <service-B>  <service-C>   (reasons printed above)
+   or any ranked  <N> services listed in the overview
+
+Enter one service name. Multiple services require separate runs
+(one service per drill, by design).
+
+Options: <name>  or  cancel  or  --overview-only (stop here)
+```
+
+The operator supplies **one** name. Matching rules:
+
+- Case-insensitive exact match against the CE service names from Call A1.
+- Case-insensitive match against obvious short forms the agent resolved in
+  the recommended list (e.g., "RDS" matches "Amazon Relational Database
+  Service"). Ambiguity halts and asks.
+- Operator can also pass `--service <name>` on the invocation to skip the
+  overview phase entirely; the match is resolved the same way, after a
+  minimal Call A1 run to produce the authoritative service list.
+
+Record `service_chosen` in `scope.json` and proceed to Phase B.
+
+## Phase B: Drill
+
+Phase B queries CE and the Price List API inside the chosen service only.
+All CE calls add a `SERVICE` filter to the single service picked.
+
+### Call B1 — usage-type ranking within the service
+
+Two grouping dimensions is the CE API maximum:
 
 ```bash
 aws ce get-cost-and-usage \
@@ -50,50 +189,64 @@ aws ce get-cost-and-usage \
   --granularity MONTHLY \
   --metrics AmortizedCost UsageQuantity \
   --group-by '[
-    {"Type":"DIMENSION","Key":"USAGE_TYPE"},
-    {"Type":"DIMENSION","Key":"PURCHASE_TYPE"}
+    {"Type":"DIMENSION","Key":"SERVICE"},
+    {"Type":"DIMENSION","Key":"USAGE_TYPE"}
   ]' \
   --filter '{"And":[
       {"Not":{"Dimensions":{"Key":"RECORD_TYPE",
                "Values":["Credit","Refund","Tax"]}}},
-      {"Dimensions":{"Key":"SERVICE","Values":["<services_resolved>"]}},
-      {"Dimensions":{"Key":"LINKED_ACCOUNT","Values":["<accounts_in_scope>"]}}
+      {"Dimensions":{"Key":"SERVICE","Values":["<service_chosen>"]}}
     ]}' \
-  --billing-view-arn <billing_view_arn> \
+  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
 ```
 
-Filter assembly, applied before the call is built:
+**Grouping by `SERVICE × USAGE_TYPE` is deliberate**, even though every row
+has the same service value. It makes the service code that owns each usage
+type explicit in the result, which Step 4 cites instead of inferring from the
+code string. The misdecode trap `step-4-decode.md` is built to prevent
+(`USW2-Amazon-Q-QS-Fee` -> Amazon Q when it is really Amazon QuickSight) is
+closed here, by construction, for every code that came from a CE grouping.
 
-| Condition | Change to `--filter` |
-|---|---|
-| `services = all` | drop the `SERVICE` clause |
-| `accounts = all` | drop the `LINKED_ACCOUNT` clause |
-| both of the above | drop the `And` wrapper, leaving the bare `Not` clause |
-| `billing_view_arn` is null | omit `--billing-view-arn` entirely |
-
-`UsageQuantity` is requested alongside cost because Step 4 needs it twice: to
-cross-check the unit against the price record, and to derive the effective rate.
-
-Paginate on `NextPageToken` until exhausted.
-
-### Both metrics are per-month averages
-
-Aggregate across the lookback window by **averaging, not summing**, and average
-cost and quantity the same way:
+Aggregate each usage type the same way as the overview — monthly averages,
+not sums:
 
 ```
 monthly_avg     = sum(AmortizedCost  over N months) / N
 usage_quantity  = sum(UsageQuantity  over N months) / N
 ```
 
-Step 4 divides one by the other to get the effective unit rate, so mixing a sum
-with an average understates the rate by a factor of `lookback_months`. Record
-`lookback_months` on the profile so the arithmetic is auditable.
+Cost Explorer returns `UsageQuantity` with its own unit. Record it; Step 4
+cross-checks it against the Price List record's `unit` to catch misdecodes.
 
-## Call 2: where each line sits
+### Call B2 — purchase mix per selected usage type
 
-For the lines that survive `top_n` and `min_finding_usd`, attribute them:
+Only for lines that survive `top_n` and `min_finding_usd`. Filter to those
+usage types:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost \
+  --group-by '[
+    {"Type":"DIMENSION","Key":"USAGE_TYPE"},
+    {"Type":"DIMENSION","Key":"PURCHASE_TYPE"}
+  ]' \
+  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code1>","<code2>",...]}}' \
+  [--billing-view-arn <arn>] \
+  --region us-east-1 --output json
+```
+
+`PURCHASE_TYPE` is the readable On Demand / Reserved / Savings Plans split
+used for display and for selecting the lever classes worth researching:
+
+```
+mostly On Demand on a commitment-eligible service   configuration, commitment, capacity
+mostly Reserved or Savings Plans                    configuration, capacity
+On Demand on a non-eligible service                 configuration, elimination
+```
+
+### Call B3 — attribution (account × region) per selected usage type
 
 ```bash
 aws ce get-cost-and-usage \
@@ -103,76 +256,36 @@ aws ce get-cost-and-usage \
     {"Type":"DIMENSION","Key":"LINKED_ACCOUNT"},
     {"Type":"DIMENSION","Key":"REGION"}
   ]' \
-  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code>"]}}' \
-  --billing-view-arn <billingViewArn> \
+  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code1>","<code2>",...]}}' \
+  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
 ```
 
-Two grouping dimensions is the API maximum, which is why account and region come
-from a second call filtered to the selected codes rather than from one wide call.
-
-Keep `NoRegion` / `global` cost in each line's total; it is excluded only from
-the resolved region set, below.
+Keep `NoRegion` / `global` cost in each line's total; exclude it from the
+resolved region set. Drop the region dimension entirely for global products
+(S3 bucket inventory, Route 53, CloudFront) rather than inventing one.
 
 ### Resolve regions here
 
-The `REGION` grouping in this call is the region data, so `regions` resolves from
-it rather than from a separate discovery call.
+The `REGION` grouping in Call B3 **is** the region data; `regions` resolves
+from it rather than from a separate discovery call:
 
 ```
-regions = auto        take the distinct REGION values this call returned
-regions = explicit    use the list as given, and record in scope.json that
-                      regions were not derived from spend
+regions = auto       the distinct REGION values this call returned
+regions = explicit   the list as given; scope.json records that regions were
+                     not derived from spend
 ```
 
-Drop the `NoRegion` / `global` pseudo-region from the resolved set, and drop the
-region dimension entirely for global products (S3 bucket inventory, Route 53,
-CloudFront) rather than inventing one.
+Drop the `NoRegion` / `global` pseudo-region from the resolved set. Write the
+result back to `scope.json` as `regions_resolved`. Step 6's fan-out uses
+that, not the raw parameter.
 
-Write the result back to `scope.json` as `regions_resolved`. Step 6's fan-out
-uses that, not the raw parameter.
+### Call B4 — commitment coverage per selected usage type (RECORD_TYPE)
 
-## Call 3: how many accounts the CE source can actually see
-
-One cheap call, grouped by `LINKED_ACCOUNT` alone and **not** filtered to the
-selected usage types:
-
-```bash
-aws ce get-cost-and-usage \
-  --time-period Start=<lookback_start>,End=<this_month_start> \
-  --granularity MONTHLY --metrics AmortizedCost \
-  --group-by '[{"Type":"DIMENSION","Key":"LINKED_ACCOUNT"}]' \
-  --billing-view-arn <billing_view_arn> \
-  --region us-east-1 --output json
-```
-
-> **Do not derive this from Call 2.** Call 2 is filtered to the selected
-> usage types, so its `LINKED_ACCOUNT` values are "accounts with cost in the
-> analyzed lines", not "accounts the CE source can see". An account with
-> substantial spend entirely outside the top `top_n` would be counted as
-> invisible, understating coverage and misreporting the run as narrower than it
-> was.
-
-```
-accounts_visible    distinct LINKED_ACCOUNT values from THIS call
-accounts_in_scope   accounts resolved in Step 2, after account_filter
-```
-
-Both go in `spend-profile.json` and the report header. This replaces any attempt
-to classify what the CE source account "is": a payer, a Billing Conductor
-billing-group primary whose group spans every account, and a single account all
-report their true coverage through the same count, with no need to understand
-their topology.
-
-A roster account visible to the CE source but with no cost in the window is
-normal (new account, billing lag) and is not a coverage gap. A roster account the
-CE source cannot see at all is a coverage gap, and the report names it.
-
-## Call 4: precise commitment coverage, for commitment-eligible lines only
-
-`PURCHASE_TYPE` gives a readable On Demand / Reserved / Savings Plans split, which
-is what the gate displays. For the coverage figure that feeds the realizable
-saving, use `RECORD_TYPE`, which separates covered usage from the commitment fee:
+For commitment-eligible services only (compute, RDS, OpenSearch, SageMaker).
+Skip entirely for services where a commitment cannot apply (NAT, data
+transfer, EIP, S3 storage, CloudWatch). An empty result for those is not a
+gap.
 
 ```bash
 aws ce get-cost-and-usage \
@@ -182,149 +295,112 @@ aws ce get-cost-and-usage \
     {"Type":"DIMENSION","Key":"USAGE_TYPE"},
     {"Type":"DIMENSION","Key":"RECORD_TYPE"}
   ]' \
-  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code>"]}}' \
-  --billing-view-arn <billingViewArn> \
+  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code1>","<code2>",...]}}' \
+  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
 ```
 
-Resolve the record-type values rather than assuming them, the same way service
-names and usage-type codes are resolved:
-
-```bash
-aws ce get-dimension-values \
-  --dimension RECORD_TYPE \
-  --time-period Start=<lookback_start>,End=<this_month_start> \
-  --billing-view-arn <billing_view_arn> \
-  --region us-east-1 --output json
-```
-
-Then classify the returned values into two buckets and compute from those:
+Classify RECORD_TYPE values (resolved via `get-dimension-values` as in A3)
+into three buckets, and compute coverage from the first two:
 
 ```
-covered-usage values      anything denoting usage paid for by a commitment
-                          (a Savings Plan covered-usage value, the RI
-                          discounted-usage value)
-on-demand usage value     plain usage
-accounting values         commitment fees, negations and upfront charges.
-                          EXCLUDE from the denominator: they are not usage.
+covered-usage values   SP covered-usage; RI discounted-usage
+on-demand usage value  plain Usage
+accounting values      commitment fees, negations, upfront charges.
+                       EXCLUDED from the denominator.
 
 coverage = covered-usage / (covered-usage + on-demand usage)
 ```
 
-> **Do not hardcode the value strings.** They are AWS-controlled and change as
-> commitment products are added, exactly like usage-type codes. If a returned
-> value cannot be classified into one of the three buckets, report the coverage
-> figure as unavailable for that line rather than guessing which bucket it
-> belongs in.
+Commitment coverage from **Call B4 (RECORD_TYPE) is the figure that feeds
+realizable saving**, not the purchase-mix percentage from Call B2. B2 is for
+display; B4 is precise.
 
-Skip this call for lines on services that cannot be covered by a commitment
-(NAT, data transfer, EIP, S3, CloudWatch). An empty result there is not a gap.
+### Optional — spike attribution
 
-## Optional: spike attribution
+Only if the operator asked why costs changed. Uses `ce:GetCostComparisonDrivers`
+with calendar-month-aligned periods. Omitted here for length; see the previous
+revision of this reference for the exact shape, unchanged in this rewrite.
 
-Only when the operator asked why costs changed:
+## Build the drill cost lines
 
-```bash
-aws ce get-cost-comparison-drivers \
-  --baseline-time-period   Start=2026-09-01,End=2026-10-01 \
-  --comparison-time-period Start=2026-10-01,End=2026-11-01 \
-  --metric-for-comparison AmortizedCost \
-  --billing-view-arn <billing_view_arn> \
-  --region us-east-1 --output json
-
-aws ce get-anomalies --date-interval StartDate=<start>,EndDate=<end> \
-  --region us-east-1 --output json
-```
-
-> **Both periods must be exactly one calendar month.** The API states the
-> interval "must start and end on the first day of a month, with a duration of
-> exactly one month", and `End` is exclusive. An arbitrary range fails
-> validation, so derive the two periods from calendar month boundaries rather
-> than from `lookback_months`. The literal dates above are the shape, not values
-> to copy.
-
-`--metric-for-comparison` is required. Valid values are `AmortizedCost`,
-`BlendedCost`, `NetAmortizedCost`, `NetUnblendedCost`, `NormalizedUsageAmount`,
-`UnblendedCost` and `UsageQuantity`. Pass the run's `metric`.
-
-`get-cost-comparison-drivers` returns the factors driving change between two
-periods within the last 13 months (38 with multi-year data enabled), including
-usage changes, discount changes and commitment-based savings. Prefer it over
-hand-rolled month-over-month arithmetic.
-
-## Build the spend profile
-
-Per usage-type code, aggregate across months:
+Per usage-type code, carry forward:
 
 ```json
 {
-  "code":            "NatGateway-Bytes",
-  "monthly_avg":     12400.00,
-  "usage_quantity":  410000,
+  "service":         "Amazon Relational Database Service",
+  "code":            "APS1-ExtendedSupport:Yr3:MySQL5.7",
+  "monthly_avg":     353.28,
+  "usage_quantity":  1472.0,
   "lookback_months": 3,
-  "ce_unit":         "GB",
-  "purchase_mix":    { "On Demand": 100.0, "Savings Plans": 0.0, "Reserved": 0.0 },
-  "accounts":        ["111111111111", "222222222222"],
-  "regions":         ["us-east-1"]
+  "ce_unit":         "vCPU-hour",
+  "purchase_mix":    { "On Demand Instances": 100.0 },
+  "record_type_mix": { "Usage": 100.0 },
+  "coverage":        0.0,
+  "accounts":        ["111111111111"],
+  "regions":         ["ap-southeast-1"]
 }
 ```
 
 Rank by `monthly_avg` descending. Select the top `top_n` lines at or above
-`min_finding_usd`.
+`min_finding_usd` (default `25`). Both parameters now apply **within** the
+chosen service, as intended.
 
-### No lines are excluded; the purchase mix selects lever classes
+## Drill confirmation gate
 
-Every line above `min_finding_usd` proceeds to decode. The mix does not
-disqualify a line, it narrows what is worth researching in Step 5:
-
-| Purchase mix | Lever classes worth researching |
-|---|---|
-| mostly On Demand on a commitment-eligible service | configuration, **commitment**, capacity |
-| mostly Reserved or Savings Plans | configuration, capacity. A commitment lever is already taken. |
-| On Demand on a non-eligible service (NAT, data transfer, EIP, S3, CloudWatch) | configuration only |
-
-Carry `purchase_mix` forward: Step 6 needs it to separate gross from realizable
-saving, because a lever that eliminates commitment-covered usage does not reduce
-the bill until the freed commitment is absorbed or the plan expires. An idle
-resource is still waste whether or not a commitment currently pays for it, which
-is why the line is analyzed rather than dropped.
-
-## Confirmation gate
-
-Present the profile and take one confirmation. The cost lines are unknown until
-now, so this is the first point at which a question has information behind it.
+Present the selected lines and take one confirmation before decode (Step 4),
+research (Step 5), and confirmation (Step 6) run unattended.
 
 ```
-SPEND PROFILE   CE source 111111111111 · rate basis chargeable · AmortizedCost
-                visible: 14 of 14 accounts in scope · 4 regions
-                Aug-Oct 2026 (3 months) · services: all
+DRILL — <service_chosen>   source tier <N> · <rate_basis> · AmortizedCost
+                           visible: <X> of <Y> accounts · <Z> regions
+                           service total: $<S>/mo (<P>% of org) · <L> months
 
- #  usage type                 $/mo      purchase mix        accounts
- 1  NatGateway-Bytes         12,400      OD 100%             2
- 2  BoxUsage:m6i.large        9,800      SP 94% / OD 6%      5
- 3  USE2-USW2-AWS-Out-Bytes   6,200      OD 100%             3
- 4  EBS:VolumeUsage.gp2       4,100      OD 100%             7
+ #  usage type                                      $/mo  purchase    record  coverage
+ 1  APS1-ExtendedSupport:Yr3:MySQL5.7              353.28  OD 100%    U 100%      0.0%
+ 2  APS1-InstanceUsage:db.t3.medium                185.47  OD 100%    U 100%      0.0%
  ...
-10  CW:Requests                 640      OD 100%             4
+ N  APS1-Aurora:StorageIOUsage                       4.39  OD 100%    U 100%      0.0%
 
- below min_finding_usd ($100):        31 lines, $1,480/mo total
+ below min_finding_usd ($<T>):    <K> lines, $<U>/mo total
 
- Next: decode 9 lines, research their levers, verify across 14 accounts.
- Estimate: 9 pricing calls · ~25 doc fetches · ~150 describe calls.
+ Next: decode <N> lines, research levers, verify across <Z> accounts.
+ Estimate: <N> pricing calls · ~<D> doc fetches · ~<R> describe/CW calls.
 
- Proceed, adjust (top_n / min_finding_usd / drop or add lines), or cancel?
+ Proceed, adjust (top_n / min_finding_usd / drop a line), or cancel?
 ```
 
-Wait for explicit approval. Edits re-render the gate. Steps 4 through 7 then run
+Wait for explicit approval. Edits re-render the gate. Steps 4-7 then run
 unattended.
-
-The gate sits here rather than at Step 2 because this is the first point with
-information behind it: the operator can drop a line they know is an accepted
-workload, and the purchase-mix column changes priorities in a way no default
-could predict.
 
 ## Persist
 
-Write `spend-profile.json`: the ranked lines, the below-threshold total,
-`accounts_visible`, `lookback_months`, and the selection the operator approved.
-Write `regions_resolved` back to `scope.json`.
+Write `spend-profile.json`:
+
+```json
+{
+  "run_id":             "...",
+  "phase":              "drill",
+  "service_chosen":     "Amazon Relational Database Service",
+  "service_monthly":    981.83,
+  "service_share_of_org": 0.390,
+  "accounts_visible":   6,
+  "accounts_in_scope":  6,
+  "lookback_months":    3,
+  "ce_source_tier":     3,
+  "rate_basis":         "chargeable",
+  "metric":             "AmortizedCost",
+  "metric_override":    false,
+
+  "org_commitment_coverage": 0.0,
+  "org_record_type_mix":     { "Usage": 100.0 },
+
+  "lines":              [ /* the ranked drill lines */ ],
+  "below_threshold":    { "lines": 4, "monthly": 4.41 }
+}
+```
+
+Update `scope.json`: `regions_resolved`, `service_chosen`, the selection the
+operator approved. The overview phase, when run on its own, writes an
+analogous `overview-profile.json` with the ranked service list, themes, and
+coverage statement — no drill fields.

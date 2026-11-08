@@ -1,27 +1,34 @@
 # Step 2: Resolve Scope and the CE Source Account
 
 Two independent things: which accounts the evidence comes from, and which single
-account the cost comes from.
+source Cost Explorer is queried from.
+
+Scope (`accounts`, `account_filter`) is read from the roster. The CE source is
+decided by an empirical cascade, not by asking: previous iterations of this
+mode asked the operator to name an account, then auto-detected one when they
+could not, and both failures were avoidable. The cascade is defined in
+[`access-pattern.md`](access-pattern.md); this file is where it runs.
 
 ## Terminology
 
-- **CE source account** -- the account Cost Explorer is queried from.
-
-There is deliberately no label for "what it can see". Coverage is measured, not
-classified: Step 3 counts the distinct `LINKED_ACCOUNT` values Cost Explorer
-actually returns and compares them to `accounts_in_scope`. "14 of 14" is more
-honest than a category, and it works identically for a payer, a Billing
-Conductor primary and a single account without Corgiro needing to understand
-any of their topologies.
+- **CE source** — the credential/account pair Cost Explorer is queried from.
+  May be a payer, a Billing Conductor primary with a billing-group view, or
+  each member account in turn.
+- **`rate_basis`** — the rate the CE source returns. Chargeable at tiers 1 and
+  3, proforma at tier 2. Derived, never asked.
+- **`accounts_visible`** — accounts Cost Explorer actually returned cost for,
+  from the chosen CE source. Measured per tier in Step 3, then printed in the
+  report header. "Visible" is honest about tier 3 partials (see
+  [`access-pattern.md`](access-pattern.md) partial tier 3).
 
 ## Resolve `accounts` first: it decides everything else
 
 Read `~/.corgiro/state/roster.json`, then resolve the analysis set:
 
-- **Org-wide (default)** -- `accounts` omitted or `all`: every roster entry with
-  `reachable: true`, or every entry if the snapshot lacks the field (reachability
-  is re-checked implicitly on the first call).
-- **Specific accounts** -- `accounts` is a list of account IDs or roster names.
+- **Org-wide (default)** — `accounts` omitted or `all`: every roster entry with
+  `reachable: true`, or every entry if the snapshot lacks the field
+  (reachability is re-checked implicitly on the first call).
+- **Specific accounts** — `accounts` is a list of account IDs or roster names.
   Resolve each entry against the roster:
   - a 12-digit ID present in the roster resolves directly
   - a name is matched case-insensitively against roster `name` values. One
@@ -37,153 +44,156 @@ Credential dispatch stays in
 [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
 Do not restate it.
 
-## The CE source account: ask, never detect
+## Resolve the CE source by cascade
 
-**Detection is harmful here, not merely unreliable.** Customers billed through a
-distributor or solution provider have no access to the payer: it belongs to the
-distributor and carries the distributor's discount. The distributor gives them a
-Billing Conductor primary account instead. For those customers
-`organizations:describe-organization` returns the **distributor's**
-`MasterAccountId`, an account they can never reach on any access mode. Corgiro
-would confidently name the wrong account.
-
-Corgiro also cannot discover the Billing Conductor path itself.
-`billing:ListBillingViews` is the right primitive, but
-`corgiro-operator-role.yaml` grants no `billing:*` or `billingconductor:*`
-(and `ce:List*` does not cover it, the action is in the `billing` namespace), and
-the operator role lives in the tooling account, which is not the billing-group
-primary.
-
-So resolve one CE source account on every run, regardless of what `accounts` is
-set to, by asking the operator.
-
-> "Which account should I read cost from? Give me the account ID.
->
->  Usually your payer or management account. If you are billed through a
->  distributor or solution provider, it is the account where you view your
->  organization's bill."
-
-One question, one answer type. The operator does not need to know what Billing
-Conductor is, and Corgiro does not need to know either: the verification step
-below determines what that account can actually see.
-
-> **Resolve the source even for a scoped analysis.** Reading one source and
-> adding a `LINKED_ACCOUNT` filter is strictly better than querying each
-> account's own Cost Explorer: one rate basis, far fewer requests, and no
-> dependence on the payer having enabled member-account access, which is an
-> org-wide all-or-none setting. Skipping the question on a scoped run only defers
-> it, and the deferred version fails mid-run after burning calls. Per-account
-> Cost Explorer is a fallback, never a default.
-
-**Do not write this to `~/.corgiro/config.json`.** Only `setup-corgiro` and
-`account-coverage` write there, and a mode that invents config keys creates state
-nothing else knows how to manage. Record the answer in the run's `scope.json`
-instead, and ask again next run.
-
-If the operator wants to stop being asked, the right fix is for `setup-corgiro`
-to collect it, which is a separate change to that mode.
-
-## Verify, do not trust
-
-The answer names an account. Confirm Corgiro can actually use it.
+The procedure in [`access-pattern.md`](access-pattern.md) defines the tiers and
+their succeed/fail semantics. Execute it in order, recording the attempt and
+its result. The verification query at each tier is the same probe:
 
 ```bash
-# 1. the named account must be in the roster and reachable
-#    (resolve credentials per credential-resolution.md, then:)
-aws sts get-caller-identity
-
-# 2. Cost Explorer must answer from it
 aws ce get-cost-and-usage \
   --time-period Start=<last_month_start>,End=<this_month_start> \
   --granularity MONTHLY --metrics AmortizedCost \
+  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
-
-# 3. which billing views does THIS account see?
-aws billing list-billing-views --output json
 ```
 
-Call 3 is self-describing: it returns only views the caller can see, and
-`billingViewType` is one of
-`PRIMARY | BILLING_GROUP | CUSTOM | BILLING_TRANSFER | BILLING_TRANSFER_SHOWBACK`.
+**Tier 1 — payer.** Resolve `management_account_id` from `coverage.json` (set by
+`account-coverage`; a roster entry with `via: "management"` identifies it).
+Attempt `sts:AssumeRole` into `CorgiroReadOnlyRole` there. On `AccessDenied`,
+the role is absent (the normal case for a default setup, because
+service-managed StackSets cannot target the management account). Record
+`tier1_status: role_absent` and move on.
 
-| Result | Action |
-|---|---|
-| a `BILLING_GROUP` view is present | record its `arn` as `billing_view_arn` and set `rate_basis: proforma`. |
-| only `PRIMARY` | `rate_basis: chargeable`. |
-| call denied, or `billing:*` absent from `ReadOnlyAccess` | ask the operator for the billing view ARN. Nothing else changes. |
+If AssumeRole succeeds, run the probe. On `DataUnavailableException`, record
+`tier1_status: data_unavailable` and move on. On success, record
+`tier1_status: pass`, set `rate_basis: chargeable`, `billing_view_arn: null`,
+and `ce_source_account: <management_account_id>`.
 
-Pass the resolved ARN as the `--billing-view-arn` argument on every
-`ce get-cost-and-usage` call, so the scope is explicit rather than implied by
-whichever account happened to be used.
+**Tier 2 — Billing Conductor primary.** For each reachable roster account in a
+stable order (roster insertion order is fine), AssumeRole into
+`CorgiroReadOnlyRole` and call:
 
-> **`rate_basis` is derived, never offered as a choice.** A Billing Conductor
-> billing group member "cannot view historical, billable cost and usage data in
-> Cost Explorer"
-> (https://docs.aws.amazon.com/help-panel/billingconductor/latest/console/hp-billing-group-type.html),
-> so when a `BILLING_GROUP` view is present, proforma is the only view available
-> and the report states it as a fact. Do not ask the operator to pick between
-> chargeable and proforma: on this path there is nothing to pick.
+```bash
+aws billing list-billing-views --region us-east-1 --output json
+```
 
-> **Commitment coverage stays valid at billing-group scope.** A billing group's
-> "pro forma usage is computed as its own consolidated billing family", sharing
-> Reserved Instance and Savings Plans benefits "only within the group"
-> (https://docs.aws.amazon.com/billingconductor/latest/userguide/creating-abc.html).
-> So the coverage figure measured from a billing-group view is the correct one
-> for those accounts, not a degraded proxy for a payer-wide number.
+The first account whose response contains a view with
+`billingViewType == "BILLING_GROUP"` is a BC primary. Capture the view's `arn`.
+Record `tier2_status: pass`, `rate_basis: proforma`,
+`billing_view_arn: <arn>`, and `ce_source_account: <that_account_id>`. Run
+the probe with `--billing-view-arn <arn>` to confirm the view is query-able;
+on failure, record it and continue down the list.
 
-If calls 1 or 2 fail, **re-ask**. Do not silently fall back to a narrower scope:
-a per-account sweep presented as organization-wide is worse than a hard stop.
-If no option works, hard stop. Report which accounts were tried and the three
-options from `MODE.md` Prerequisites. Do not propose provisioning new access:
-extending coverage to the payer is a setup decision for whoever provisioned
-Corgiro.
+If no roster account returns a `BILLING_GROUP` view, record `tier2_status:
+no_billing_group` and move on. This is the normal case for organizations not
+on Billing Conductor.
+
+> **`billingconductor:*` is not used.** Enumerating billing groups directly
+> requires `billingconductor:ListBillingGroups`, which is denied under the
+> operator permission set and not granted by `ReadOnlyAccess`. `ListBillingViews`
+> works because the caller is asking "which views can I see?" rather than "which
+> groups does this org have?" — a self-describing read, not a payer enumeration.
+
+**Tier 3 — per-account.** Fan out the probe across every reachable roster
+account under `CorgiroReadOnlyRole`. Record per-account results:
+
+```
+tier3_status: pass          every account returned cost data
+tier3_status: partial       some accounts returned DataUnavailableException
+tier3_status: fail          every account returned DataUnavailableException
+```
+
+On `pass`, set `rate_basis: chargeable`, `billing_view_arn: null`,
+`ce_source_account: "per-account"`. On `partial`, the same, plus
+`tier3_partial: { succeeded: [...], failed: [{ accountId, exception }, ...] }`;
+the operator is asked to accept the partial at the Step 3 gate (see
+[`access-pattern.md`](access-pattern.md) partial tier 3).
+
+On `fail`, the cascade is exhausted — proceed to the hard stop.
+
+## Operator override
+
+After the cascade resolves, present the result in a single line and allow one
+override:
+
+```
+CE source: tier 3 per-account (6 of 6 accounts reachable, rate_basis: chargeable)
+Press enter to proceed, or name a different reachable roster account:
+```
+
+The override only changes which account is probed; it does not change the
+tier logic (naming the payer still attempts AssumeRole + AmortizedCost; naming
+a member still queries per-account).
+
+**Do not ask for a billing-view ARN.** Tier 2 produces it from the API; tiers
+1 and 3 do not use one. Previous iterations asked the operator for it under
+`AccessDenied` on `ListBillingViews`, which was a dead-end on direct-payer
+orgs — an operator billed directly has no view ARN to supply. That question is
+gone.
+
+## Hard stop
+
+When the cascade exhausts, print the hard-stop message from
+[`access-pattern.md`](access-pattern.md). Its exact wording is the authority —
+do not re-derive it here. It names two remediations (deploy the role manually
+to the management account, or enable `Linked account discounts` in payer
+preferences) and one override (`--metric UnblendedCost`).
+
+Record `ce_cascade_result: hard_stop` in `scope.json` and exit.
 
 ## Regions are not resolved here
 
 `regions` is resolved in Step 3, because that is where the data appears: the
-spend profile already groups by `REGION` from the same account, so no separate
+spend profile already groups by `REGION` from the same source, so no separate
 discovery call is needed. Step 2 records the parameter value and nothing more.
-
-## Two account counts, deliberately distinct
-
-Both are printed in the report header, and they are not interchangeable.
-
-```
-accounts_in_scope   written here, into scope.json. The evidence fan-out set:
-                    roster entries matching `accounts`, after account_filter.
-                    Says where Step 6 will look.
-accounts_visible    written by Step 3, into spend-profile.json. The accounts
-                    Cost Explorer actually returns cost for from the CE source
-                    account. Says how much of the bill Step 3 could see.
-```
-
-A run where `accounts_visible` is 9 of 14 is not an organization-wide analysis
-and must not read like one.
 
 ## Persist
 
-Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
+Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3;
+tier-specific fields are set only for the tiers that were attempted:
 
 ```json
 {
-  "run_id":            "cost-optimization-review-20261108-184500",
+  "run_id":            "cost-optimization-review-<service>-20261108-184500",
   "access_mode":       "cross-account-role",
-  "ce_source_account": "111111111111",
+  "auth_method":       "identity-center",
+
+  "ce_source_tier":    3,
+  "ce_source_account": "per-account",
+  "ce_source_route":   "CorgiroReadOnlyRole, fanned out across reachable roster accounts",
   "billing_view_arn":  null,
   "rate_basis":        "chargeable",
+
+  "tier1_status":      "role_absent",
+  "tier2_status":      "no_billing_group",
+  "tier3_status":      "pass",
+  "tier3_partial":     null,
+
   "metric":            "AmortizedCost",
+  "metric_override":   false,
+
   "lookback_months":   3,
   "accounts":          "all",
   "accounts_in_scope": [],
   "not_in_roster":     [],
-  "services":          "all",
-  "services_resolved": [],
+
+  "services":          null,
+  "services_resolved": null,
+  "service_chosen":    null,
+
   "top_n":             10,
-  "min_finding_usd":   100,
+  "min_service_usd":   50,
+  "min_finding_usd":   25,
+
   "regions":           "auto",
   "regions_resolved":  null,
+
   "account_filter":    { "include": [], "exclude": [] },
   "skipped":           []
 }
 ```
 
+`service_chosen` stays `null` until the operator picks one at the end of the
+overview phase. `services` (plural, from `--service` if set) is resolved in
+Step 3 against the customer's actual spend.

@@ -61,9 +61,18 @@ Region codes are not guessable: `EU` (legacy eu-west-1), `APS1`-`APS9`,
 `pricing:GetProducts` are Read actions, present in `ReadOnlyAccess` and absent
 from `CorgiroReadOnlyRole-DataPlaneDeny`.
 
-The Price List Query API is **global and account-agnostic**: call it from any
-account, including the base profile. Endpoints are `us-east-1`, `eu-central-1`
-and `ap-south-1`.
+The Price List Query API is **global and account-agnostic**: the same data is
+returned regardless of which AWS account the caller is in. Endpoints are
+`us-east-1`, `eu-central-1` and `ap-south-1`.
+
+**Call it via `CorgiroReadOnlyRole` in any member account** (including the
+tooling account when it is itself a roster member). `pricing:*` is granted by
+`ReadOnlyAccess`, which that role carries. Do **not** call pricing from the
+base operator profile — it is a `CorgiroOperator` permission set and does not
+carry `pricing:*`, so the call fails `AccessDenied` with no indication that
+the problem is the credential rather than the service. Modes that run pricing
+decoding should pin it to the tooling account so decode calls do not scatter
+across customer workload accounts in CloudTrail.
 
 ## Step 1: Decode
 

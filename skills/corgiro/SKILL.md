@@ -144,7 +144,7 @@ AWS resource metadata (names, tags, descriptions, user-data fields) is attacker-
 
 - [`references/cross-account-defaults.md`](references/cross-account-defaults.md) — Default configuration values used across all modes.
 - [`references/credential-resolution.md`](references/credential-resolution.md) — Per-account credential dispatch on each roster entry's `via` field, plus operator-session dispatch on `authMethod` (keeps all modes access-mode- and IdP-agnostic); also defines the pre-flight security checks and reachability vocabulary.
-- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, elasticache-eol-analysis, ec2-compute-review, iam-security-review, security-posture-review).
+- [`references/report-format.md`](references/report-format.md) — Shared report theme + structure for HTML/Markdown output (used by account-coverage, health-event-analysis, rds-eol-analysis, eks-eol-analysis, elasticache-eol-analysis, ec2-compute-review, iam-security-review, security-posture-review, cost-optimization-review).
 - [`references/aws-version-lifecycle.md`](references/aws-version-lifecycle.md) — How to scrape EOL dates from AWS docs (used by rds-eol-analysis, eks-eol-analysis, and elasticache-eol-analysis).
 - [`references/aws-pricing-grounding.md`](references/aws-pricing-grounding.md) — Decode usage-type codes and ground every price in the AWS Price List Query API, including the tier walk, the CE unit cross-check and the effective-rate rule (used by cost-optimization-review).
 

@@ -157,6 +157,7 @@ over a window, so it can be confidently wrong. These are rules, not advice.
 
 | Situation | Verdict and handling |
 |---|---|
+| Compute Optimizer `finding: Optimized` with `savingsOpportunity: 0%` but `idle: true` | **Does not mean no opportunity.** `finding: Optimized` means no **capacity** opportunity — the resource is already the smallest class in its family. `idle` is independent: it reflects activity metrics, not sizing. Co-occurrence means the resource is an **elimination** candidate (delete or stop), not a rightsizing one. Report the elimination lever `QUANTIFIED` with the resource list; do not report "no action needed" based on `finding` alone. See [`step-5-research.md`](step-5-research.md) elimination subsection. |
 | Compute Optimizer not opted in | Raise it as its own finding: the basic tier is free and enabling it is the lever. Fall back to raw CloudWatch with explicitly stated thresholds, and record which source was used. |
 | `Memory` absent from `utilizationMetrics` | It is only present when the CloudWatch agent is installed. A CPU-only verdict on a memory-bound workload is unsound. Report the gap on the finding; do not rule the lever out on CPU alone. |
 | Resource younger than the lookback window | `SCOPED`, never "idle" or "over-provisioned". |

@@ -23,9 +23,16 @@ So no lever research happens until the code resolves to a product record.
 
 ## Per selected cost line
 
-1. Determine the service code. A NAT usage type is `AmazonEC2`; a VPC endpoint
-   usage type is `AmazonVPC`. Use `aws pricing describe-services` when unsure.
-   Do not infer the service from the usage-type string.
+1. **Service code comes from Step 3, not inference.** Step 3's Call B1 groups
+   by `SERVICE × USAGE_TYPE`, so the CE service name that owns each code is
+   authoritative output, not guesswork. Map the CE service name to the
+   `pricing:*` service code once per run (RDS `Amazon Relational Database
+   Service` → `AmazonRDS`, EKS `Amazon Elastic Container Service for
+   Kubernetes` → `AmazonEKS`, and so on). Use `aws pricing describe-services`
+   to confirm the mapping when unsure; never infer the service from the
+   usage-type string. A code reading `Amazon-Q-QS-Fee` belongs to
+   `AWSQuickSight`, not Amazon Q — the authoritative service is in Step 3's
+   output.
 2. Decode per the shared reference. Write the record to `decode/<code>.json`.
 3. Cross-check the price record's `unit` against the `ce_unit` carried from
    Step 3. A mismatch means the wrong SKU resolved: verdict `NOT DECODED`.
@@ -42,7 +49,19 @@ So no lever research happens until the code resolves to a product record.
    profile before dividing; if either value is a sum, stop and fix Step 3 rather
    than compensating here.
 5. Record the gap against list, because it decides whose number the report
-   quotes:
+   quotes. **Use a relative tolerance when comparing** — partial-hour billing and
+   proration produce tiny rounding deltas on charges that are exactly at list.
+   Exact float equality on the effective rate reports a ~0.001% discount on
+   lines that are plainly list-priced:
+
+   ```
+   discount_vs_list = (list_rate - effective_rate) / list_rate     when > 0.005 (0.5%)
+                    = 0.0                                          when within tolerance
+   ```
+
+   Report the computed value if above tolerance; report `0.0` and the note
+   "effective rate equals list within tolerance" when below. The threshold is
+   stated in the Methodology.
 
    ```
    NatGateway-Bytes   $12,400 / 410,000 GB = $0.03024/GB  effective
@@ -53,18 +72,78 @@ So no lever research happens until the code resolves to a product record.
 Cache decodes for the run. The same code recurs across accounts and regions, and
 each decode is a billable API call.
 
+## When one usage type maps to many SKUs — `DECODED_AMBIGUOUS`
+
+Some usage types return a single product record. Many do not. A few live
+examples from this mode's test runs:
+
+```
+APS1-InstanceUsage:db.t4g.micro        3 SKUs, identical $0.025/hr rate
+                                       (MySQL, MariaDB, PostgreSQL)
+APS1-RDS:GP3-Storage                  30 SKUs, identical $0.138/GB-Mo rate
+                                       (every engine x deployment option)
+APS1-InstanceUsage:db.t3.medium       17 SKUs, 5 distinct rates
+                                       (per engine: Aurora, PostgreSQL, Oracle,
+                                        SQL Server, Db2)
+```
+
+The unit cross-check does **not** disambiguate — every candidate has the same
+unit. Neither does the effective rate alone when the resource matches list
+exactly. The only thing that resolves it is live resource inspection, which is
+Step 6, *after* the Step 4 gate.
+
+**Rule.** When the price-list query returns more than one record for the usage
+type, do not fail — carry the candidates forward and let Step 6 resolve them.
+
+```
+verdict           DECODED_AMBIGUOUS
+candidates[]      every record returned, each with its sku, disambiguating
+                  attributes (databaseEngine, deploymentOption, volumeType, ...),
+                  and its rate
+sku               null, filled in by Step 6 once the resource is inspected
+list_rate         the common rate when all candidates share one; otherwise null,
+                  filled in by Step 6
+discount_vs_list  null until list_rate is known
+```
+
+Step 6's `rds:DescribeDBInstances` / `DescribeDBClusters` / `DescribeVolumes` /
+etc. return the disambiguating attribute (engine, deployment option, volume
+type), which selects one candidate SKU. The decode record is updated in place
+and the final verdict is promoted to `DECODED`. If no candidate matches the
+inspected resource, verdict stays `DECODED_AMBIGUOUS` and the lever research
+runs on the product family's general levers, with the SKU-specific rate
+replaced by the effective rate throughout.
+
+**Rule when candidates share a rate.** `list_rate` can be populated from the
+common value even while `sku` is null, so Step 5's grounding and the Step 3
+gate both have a number to display. This is the common case for RDS storage
+and small Graviton classes, where the engine disambiguation does not change
+the price.
+
 ## The catalogue key
 
-Key cached lever knowledge on the **decoded identity**, not the raw string:
+The decoded identity is also the cache key for lever research, so Step 5 can
+reuse prior synthesized levers for the same product across runs.
 
 ```
-(service_code, productFamily, operation, unit)
+catalogue_key = (service_code, productFamily, operation, unit)
 ```
 
-One entry then covers every regional variant of a product, while keeping
-genuinely different products apart. A regex over raw strings would fold
+One key covers every regional variant of a product, while keeping genuinely
+different products apart. A regex over raw strings would fold
 `NatGateway-Prvd-Bytes` into the standard NAT lever set, which is exactly the
 failure this step prevents.
+
+The cache itself is **operator-local state**, not part of the skill folder:
+
+```
+~/.corgiro/cache/cost-optimization-review/levers/<slugified-key>.json
+```
+
+Mode `700` on the directory, `600` on the files, same as the rest of
+`~/.corgiro/`. The skill folder is never written to by a run. See Step 5 for
+the cache schema, validation rules, and the mandatory per-run discovery
+search that catches newly launched levers the cache does not know about.
 
 ## Pass forward to Step 5
 

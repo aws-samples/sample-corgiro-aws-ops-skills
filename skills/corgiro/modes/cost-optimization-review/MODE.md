@@ -162,8 +162,8 @@ Sections, same order in both formats:
 
 1. **Executive Summary** -- KPI cards: total spend analyzed, addressable spend,
    estimated realizable saving, levers by verdict. CE source account, billing
-   view, rate basis, accounts Cost Explorer returned cost for versus accounts in
-   the roster, and accounts the evidence fan-out reached.
+   view, rate basis, `accounts_visible` versus `accounts_in_scope`, and the
+   lookback window.
 2. **Spend Profile** -- the ranked cost lines with decode result, effective rate,
    list rate, and purchase-type mix. Undecoded lines listed as unexplained spend.
 3. **Recommendations** -- grouped by cost line, so each line's levers stay

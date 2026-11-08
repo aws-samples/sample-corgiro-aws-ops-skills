@@ -158,15 +158,13 @@ Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
   "rate_basis":        "chargeable",
   "metric":            "AmortizedCost",
   "lookback_months":   3,
-  "accounts":          "all",
-  "accounts_resolved": [],
-  "not_in_roster":     [],
+  "accounts":           "all",
+  "accounts_in_scope":  [],
+  "not_in_roster":      [],
   "services":          "all",
   "services_resolved": [],
   "top_n":             10,
   "min_finding_usd":   100,
-  "accounts_in_roster": 14,
-  "accounts_in_scope":  14,
   "regions":           "auto",
   "regions_resolved":  null,
   "account_filter":    { "include": [], "exclude": [] },
@@ -174,7 +172,16 @@ Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
 }
 ```
 
-`accounts_in_roster` is the evidence fan-out set, from the roster. It is not the
-same as cost coverage: Step 3 separately counts the accounts Cost Explorer
-returns cost for, and both numbers appear in the report header. A run covering 9
-of 14 accounts is not an organization-wide analysis and must not read like one.
+Two counts, deliberately distinct, and both printed in the report header:
+
+```
+accounts_in_scope   written here. The evidence fan-out set: roster entries
+                    matching `accounts`, after account_filter.
+accounts_visible    written by Step 3. The accounts Cost Explorer actually
+                    returns cost for from the CE source account.
+```
+
+They are not interchangeable. `accounts_in_scope` says where Step 6 will look;
+`accounts_visible` says how much of the bill Step 3 could see. A run where
+`accounts_visible` is 9 of 14 is not an organization-wide analysis and must not
+read like one.

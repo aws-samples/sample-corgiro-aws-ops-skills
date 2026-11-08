@@ -35,8 +35,12 @@ So no lever research happens until the code resolves to a product record.
    effective_unit_rate = monthly_avg / usage_quantity
    ```
 
-   Both values come from Step 3's profile for the same group, so they are
-   consistent by construction.
+   Both are **per-month averages over the same window**, computed the same way in
+   Step 3, so the division is dimensionally correct. Mixing a windowed sum with a
+   monthly average understates the rate by a factor of `lookback_months`, which
+   then understates every saving computed from it. Check `lookback_months` on the
+   profile before dividing; if either value is a sum, stop and fix Step 3 rather
+   than compensating here.
 5. Record the gap against list, because it decides whose number the report
    quotes:
 
@@ -72,6 +76,7 @@ failure this step prevents.
   "group_desc":       "Charge for per GB data processed by NatGateways",
   "monthly_avg":      12400.00,
   "usage_quantity":   410000,
+  "lookback_months":  3,
   "unit":             "GB",
   "effective_rate":   0.03024,
   "list_rate":        0.04500,

@@ -1,7 +1,8 @@
 # Step 3: Analyze Spend
 
-One call set, from the CE source account resolved in Step 2. This is the only
-step that touches Cost Explorer.
+All Cost Explorer calls for the analysis run here, from the CE source account
+resolved in Step 2. Step 2 issues one small CE probe to verify that account is
+usable; this step does the work.
 
 ## Why `AmortizedCost` is the default
 
@@ -55,20 +56,40 @@ aws ce get-cost-and-usage \
   --filter '{"And":[
       {"Not":{"Dimensions":{"Key":"RECORD_TYPE",
                "Values":["Credit","Refund","Tax"]}}},
-      {"Dimensions":{"Key":"SERVICE","Values":["<resolved>","..."]}},
-      {"Dimensions":{"Key":"LINKED_ACCOUNT","Values":["<accounts_resolved>"]}}
+      {"Dimensions":{"Key":"SERVICE","Values":["<services_resolved>"]}},
+      {"Dimensions":{"Key":"LINKED_ACCOUNT","Values":["<accounts_in_scope>"]}}
     ]}' \
-  # drop the SERVICE clause when services = all
-  # drop the LINKED_ACCOUNT clause when accounts = all
-  # drop the And wrapper when neither applies
-  --billing-view-arn <billingViewArn>   # omit when null
+  --billing-view-arn <billing_view_arn> \
   --region us-east-1 --output json
 ```
+
+Filter assembly, applied before the call is built:
+
+| Condition | Change to `--filter` |
+|---|---|
+| `services = all` | drop the `SERVICE` clause |
+| `accounts = all` | drop the `LINKED_ACCOUNT` clause |
+| both of the above | drop the `And` wrapper, leaving the bare `Not` clause |
+| `billing_view_arn` is null | omit `--billing-view-arn` entirely |
 
 `UsageQuantity` is requested alongside cost because Step 4 needs it twice: to
 cross-check the unit against the price record, and to derive the effective rate.
 
 Paginate on `NextPageToken` until exhausted.
+
+### Both metrics are per-month averages
+
+Aggregate across the lookback window by **averaging, not summing**, and average
+cost and quantity the same way:
+
+```
+monthly_avg     = sum(AmortizedCost  over N months) / N
+usage_quantity  = sum(UsageQuantity  over N months) / N
+```
+
+Step 4 divides one by the other to get the effective unit rate, so mixing a sum
+with an average understates the rate by a factor of `lookback_months`. Record
+`lookback_months` on the profile so the arithmetic is auditable.
 
 ## Call 2: where each line sits
 
@@ -111,27 +132,43 @@ CloudFront) rather than inventing one.
 Write the result back to `scope.json` as `regions_resolved`. Step 6's fan-out
 uses that, not the raw parameter.
 
-### Measure cost coverage here
+## Call 3: how many accounts the CE source can actually see
 
-The distinct `LINKED_ACCOUNT` values this call returns are the accounts the CE
-source account can actually see cost for. Count them and compare to the roster:
+One cheap call, grouped by `LINKED_ACCOUNT` alone and **not** filtered to the
+selected usage types:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost \
+  --group-by '[{"Type":"DIMENSION","Key":"LINKED_ACCOUNT"}]' \
+  --billing-view-arn <billing_view_arn> \
+  --region us-east-1 --output json
+```
+
+> **Do not derive this from Call 2.** Call 2 is filtered to the selected
+> usage types, so its `LINKED_ACCOUNT` values are "accounts with cost in the
+> analyzed lines", not "accounts the CE source can see". An account with
+> substantial spend entirely outside the top `top_n` would be counted as
+> invisible, understating coverage and misreporting the run as narrower than it
+> was.
 
 ```
-accounts_with_cost   distinct LINKED_ACCOUNT values returned
-accounts_in_roster   roster size after account_filter
+accounts_visible    distinct LINKED_ACCOUNT values from THIS call
+accounts_in_scope   accounts resolved in Step 2, after account_filter
 ```
 
-Both go in `spend-profile.json` and in the report header. This replaces any
-attempt to classify what the CE source account "is": a payer, a Billing
-Conductor billing-group primary whose group spans every account, and a single
-account all report their true coverage through the same count, with no need to
-understand their topology.
+Both go in `spend-profile.json` and the report header. This replaces any attempt
+to classify what the CE source account "is": a payer, a Billing Conductor
+billing-group primary whose group spans every account, and a single account all
+report their true coverage through the same count, with no need to understand
+their topology.
 
-A roster account with no cost in the window is normal (new account, billing lag)
-and is not a coverage gap. A roster account the CE source cannot see at all is a
-coverage gap, and the report says which.
+A roster account visible to the CE source but with no cost in the window is
+normal (new account, billing lag) and is not a coverage gap. A roster account the
+CE source cannot see at all is a coverage gap, and the report names it.
 
-## Call 3: precise coverage, for commitment-eligible lines only
+## Call 4: precise commitment coverage, for commitment-eligible lines only
 
 `PURCHASE_TYPE` gives a readable On Demand / Reserved / Savings Plans split, which
 is what the gate displays. For the coverage figure that feeds the realizable
@@ -190,6 +227,7 @@ Per usage-type code, aggregate across months:
   "code":            "NatGateway-Bytes",
   "monthly_avg":     12400.00,
   "usage_quantity":  410000,
+  "lookback_months": 3,
   "ce_unit":         "GB",
   "purchase_mix":    { "On Demand": 100.0, "Savings Plans": 0.0, "Reserved": 0.0 },
   "accounts":        ["111111111111", "222222222222"],
@@ -200,10 +238,10 @@ Per usage-type code, aggregate across months:
 Rank by `monthly_avg` descending. Select the top `top_n` lines at or above
 `min_finding_usd`.
 
-### No lines are excluded
+### No lines are excluded; the purchase mix selects lever classes
 
-Every line above `min_finding_usd` proceeds to decode. The purchase mix does not
-disqualify a line, it selects which lever classes are worth researching:
+Every line above `min_finding_usd` proceeds to decode. The mix does not
+disqualify a line, it narrows what is worth researching in Step 5:
 
 | Purchase mix | Lever classes worth researching |
 |---|---|
@@ -211,16 +249,11 @@ disqualify a line, it selects which lever classes are worth researching:
 | mostly Reserved or Savings Plans | configuration, capacity. A commitment lever is already taken. |
 | On Demand on a non-eligible service (NAT, data transfer, EIP, S3, CloudWatch) | configuration only |
 
-A commitment-*covered* line is analyzed like any other. Step 6 reports a reduced
-realizable saving rather than dropping the finding, because an idle resource is
-waste whether or not a commitment currently pays for it.
-
-### Carry `purchase_mix` forward
-
-Step 6 needs it. A lever that eliminates commitment-covered usage does not
-reduce the bill until the freed commitment is absorbed elsewhere or the plan
-expires, so gross saving and realizable saving diverge. The mix is what tells
-them apart.
+Carry `purchase_mix` forward: Step 6 needs it to separate gross from realizable
+saving, because a lever that eliminates commitment-covered usage does not reduce
+the bill until the freed commitment is absorbed or the plan expires. An idle
+resource is still waste whether or not a commitment currently pays for it, which
+is why the line is analyzed rather than dropped.
 
 ## Confirmation gate
 
@@ -228,10 +261,9 @@ Present the profile and take one confirmation. The cost lines are unknown until
 now, so this is the first point at which a question has information behind it.
 
 ```
-SPEND PROFILE   cost: 14 of 14 roster accounts · 4 regions · AmortizedCost
-                rate basis: chargeable
-                CE source 111111111111 (org) · Aug-Oct 2026
-                services: all
+SPEND PROFILE   CE source 111111111111 · rate basis chargeable · AmortizedCost
+                visible: 14 of 14 accounts in scope · 4 regions
+                Aug-Oct 2026 (3 months) · services: all
 
  #  usage type                 $/mo      purchase mix        accounts
  1  NatGateway-Bytes         12,400      OD 100%             2
@@ -252,12 +284,13 @@ SPEND PROFILE   cost: 14 of 14 roster accounts · 4 regions · AmortizedCost
 Wait for explicit approval. Edits re-render the gate. Steps 4 through 7 then run
 unattended.
 
-Three reasons the gate sits here and not at Step 2: the operator may know line 3
-is an accepted workload, the purchase-mix column changes priorities in a way no
-default could predict, and Steps 5 and 6 are the slow parts so their volume
-should be visible before they start.
+The gate sits here rather than at Step 2 because this is the first point with
+information behind it: the operator can drop a line they know is an accepted
+workload, and the purchase-mix column changes priorities in a way no default
+could predict.
 
 ## Persist
 
-Write `spend-profile.json` with the ranked lines, the deferred lines, the
-below-threshold total, and the approved selection.
+Write `spend-profile.json`: the ranked lines, the below-threshold total,
+`accounts_visible`, `lookback_months`, and the selection the operator approved.
+Write `regions_resolved` back to `scope.json`.

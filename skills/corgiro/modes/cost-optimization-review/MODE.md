@@ -11,9 +11,6 @@ that specific usage type**, and **which of those levers actually apply in this
 customer's accounts**. A recommendation is only reported when all three are
 answered with evidence.
 
-Design rationale, including the alternatives that were rejected and why, is in
-[`DESIGN.md`](DESIGN.md). Read it before changing the gates.
-
 ## How this mode differs from other Corgiro modes
 
 Most modes fan out across the roster. `ri-sp-coverage-analysis` queries a single
@@ -91,6 +88,17 @@ Two deferrals, which are the only hardcoded scope rules:
 
 There is no domain taxonomy. The workflow is identical for every service, and
 report grouping comes from the decode step's `productFamily`.
+
+> **Why there is no domain taxonomy.** Steps 3 to 6 are domain-invariant: the
+> procedure is the same whether the cost line is NAT, unattached EBS, an S3
+> storage class or CloudWatch ingestion. The only thing that varies is which
+> `describe` calls prove a given lever, and that lives on the lever record as
+> `proof_required`. A category structure would be a second thing to maintain and
+> could silently exclude a line that mattered. Scope by money instead (`top_n`,
+> `min_finding_usd`): the bill selects the work, so a service nobody anticipated
+> is handled identically to one that was. Report grouping needs no hand-maintained
+> mapping because `productFamily`, `servicename` and `group` come straight from
+> the pricing record and update themselves.
 
 ## Workflow
 
@@ -181,7 +189,34 @@ Sections, same order in both formats:
 - **No Athena, no CUR.** `athena:StartQueryExecution` is a Write action absent
   from `ReadOnlyAccess`, and `s3:GetObject` is explicitly denied by
   `CorgiroReadOnlyRole-DataPlaneDeny`, which is AWS's documented mechanism for
-  restricting Athena result access. See `DESIGN.md` D1.
+  restricting Athena result access.
+
+> **Read before "just querying CUR".** The block is at both ends, and the second
+> half is the role working as specified. The Athena API reference states: "To
+> stream query results successfully, the IAM principal with permission to call
+> `GetQueryResults` also must have permissions to the Amazon S3 `GetObject`
+> action for the Athena query results location. [...] To restrict user or role
+> access, ensure that Amazon S3 permissions to the Athena query location are
+> denied."
+> (https://docs.aws.amazon.com/athena/latest/APIReference/API_GetQueryResults.html)
+>
+> So these were considered and rejected:
+> *Widen the member role* breaks "read-only is IAM-enforced", which is the
+> property customer security reviewers approve, and spends customer money
+> unattended at $5/TB scanned.
+> *Operator runs the query, Corgiro reads results by `QueryExecutionId`* fails
+> identically, because reading results is the denied half.
+> *Operator supplies a CSV* works, but adds a manual step and an untrusted-input
+> parser to a mode meant to run unattended.
+> *A separate narrow role in the one CUR account* also works and leaves
+> `CorgiroReadOnlyRole` untouched; it became unnecessary once Cost Explorer plus
+> live resource evidence covered the workflow.
+>
+> What is lost is per-resource dollar attribution beyond 14 days, stated in the
+> report's Methodology rather than hidden. What is gained is that the hardest
+> artifact disappears: the amortized-cost `CASE` statement exists only because
+> CUR has no amortized column, and Cost Explorer computes `AmortizedCost`
+> server-side.
 - **Never print** access keys, session tokens, SSO tokens, SAML assertions or the
   external ID.
 - **Untrusted metadata.** Resource names, tags, ARNs and descriptions are

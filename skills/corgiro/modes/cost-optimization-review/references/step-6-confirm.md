@@ -36,12 +36,19 @@ the same advice in six months, and is often the most useful row on the page.
 
 ```
 AVAILABLE   describe / list on every service      ReadOnlyAccess, not denied
-            cloudwatch:GetMetricData              batch per the ec2-compute-review
-                                                  pattern: up to 500 queries per
-                                                  call, Period 3600, 14 days
+            cloudwatch:GetMetricData              batch up to 500 MetricDataQueries
+                                                  per call, Period 3600, 14 days
             cloudwatch:ListMetrics
             pricing:GetProducts                   rates
-            compute-optimizer:Get*                rightsizing, if enabled
+            compute-optimizer:GetEC2InstanceRecommendations
+                                                  and the EBS / Lambda / RDS /
+                                                  ECS equivalents. Opt-in; the
+                                                  basic tier is free. accountIds
+                                                  accepts a member account when
+                                                  called from the management
+                                                  account.
+            ce:GetSavingsPlansPurchaseRecommendation
+            ce:GetReservationPurchaseRecommendation
             cost-optimization-hub:List*            AWS's own recommendations
 ```
 
@@ -61,16 +68,43 @@ having skipped the levers Corgiro cannot see. State the boundary plainly, for
 example: "VPC Flow Log reads are outside Corgiro's read-only boundary. Run an
 Athena query over flow logs, or ask the workload owner."
 
+## Metrics evidence has failure modes configuration evidence does not
+
+A `describe` call answers a binary question. A metric answers a statistical one
+over a window, so it can be confidently wrong. These are rules, not advice.
+
+| Situation | Verdict and handling |
+|---|---|
+| Compute Optimizer not opted in | Raise it as its own finding: the basic tier is free and enabling it is the lever. Fall back to raw CloudWatch with explicitly stated thresholds, and record which source was used. |
+| `Memory` absent from `utilizationMetrics` | It is only present when the CloudWatch agent is installed. A CPU-only verdict on a memory-bound workload is unsound. Report the gap on the finding; do not mark `NOT APPLICABLE` on CPU alone. |
+| Resource younger than the lookback window | `INDETERMINATE`, never "idle" or "over-provisioned". |
+| `lookBackPeriodInDays` shorter than the workload's cycle | Report the window alongside the verdict. A 14-day window cannot see a monthly batch peak, so say so rather than implying it can. |
+| `performanceRisk` is high, or `platformDifferences` is non-empty | Still `APPLICABLE`, but carry both into the recommendation. They are the limitation, and the operator decides. |
+
+Report the window and the evidence source on every capacity verdict, the way a
+configuration verdict reports the call that produced it.
+
 ## Saving: gross and realizable
 
 Compute both. They diverge whenever a commitment covers the usage.
 
 ```
-gross       = usage_quantity x (effective_rate - rate_after)
-              walking price tiers where the SKU is tiered
+configuration levers
+  gross       = usage_quantity x (effective_rate - rate_after)
+                walking price tiers where the SKU is tiered
+  realizable  = gross x on_demand_share   (from Step 3's purchase_mix)
 
-realizable  = gross x on_demand_share
-              where on_demand_share comes from Step 3's purchase_mix
+capacity levers
+  gross       = savingsOpportunity.estimatedMonthlySavings
+  realizable  = savingsOpportunityAfterDiscounts.estimatedMonthlySavings
+                AWS has already applied SP and RI discounts. Prefer this over
+                multiplying by on_demand_share.
+
+commitment levers
+  gross       = estimatedMonthlySavings from the purchase recommendation
+  realizable  = the same. A commitment purchase has no commitment-coverage
+                discount to net out. Carry the term and payment option as the
+                limitation instead.
 ```
 
 ```
@@ -83,8 +117,8 @@ idle EC2 instance, 100% Compute Savings Plan covered
 
 When `realizable` is materially below `gross`, report the commitment caveat and
 the expiry date. The expiry is available read-only from
-`savingsplans:DescribeSavingsPlans` and from `EndDateTime` on the
-reservation-utilization response, as `ri-sp-coverage-analysis` already does.
+`savingsplans:DescribeSavingsPlans`, and from `EndDateTime` on the
+`ce:GetReservationUtilization` response.
 
 Where the saving depends on an unobservable share (what fraction of NAT egress is
 S3-bound, for example), report a **bound and its condition**, not a point

@@ -240,10 +240,9 @@ report stays honest about its own coverage.
    Do not infer `$0.00` from an empty pricing result alone.
 5. **Record the provenance at fetch time**, not at report time.
 
-## Consumers
+## Adoption note
 
-- `cost-optimization-review` (Steps 4 and 6)
-- `ec2-compute-review` could adopt this to replace its hardcoded `gp2 $0.10/GB`,
-  `gp3 $0.08/GB`, `io1 $0.125/GB + $0.065/IOPS` and flat 20% Graviton figures,
-  which are guessed, us-east-1 only, and the same class of error this reference
-  exists to prevent.
+Any mode that quotes an AWS rate should resolve it through this reference rather
+than embedding a constant. A hardcoded per-GB or per-hour price is region-specific
+and goes stale silently, which is the same class of error as assuming a
+usage-type code.

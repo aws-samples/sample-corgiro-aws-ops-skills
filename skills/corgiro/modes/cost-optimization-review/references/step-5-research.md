@@ -25,6 +25,31 @@ catalogue_key is absent
 The catalogue is a cache, never a gate. The mode works correctly with it empty.
 See [`lever-catalogue.md`](lever-catalogue.md).
 
+## Lever classes and their grounding source
+
+Which source supplies layers 2 and 3 depends on the lever class. Two of the three
+have an AWS API that returns the mechanism, the limitation and the saving
+together, which is stronger grounding than any documentation page.
+
+| Class | Tier-0 grounding source | What the API supplies |
+|---|---|---|
+| configuration | `pricing:GetProducts` + docs | rate after; mechanism and limitation from docs |
+| commitment | `ce:GetSavingsPlansPurchaseRecommendation`, `ce:GetReservationPurchaseRecommendation` | recommended commitment, estimated monthly saving, estimated savings percentage, ROI |
+| capacity | `compute-optimizer:GetEC2InstanceRecommendations` (and the EBS, Lambda, RDS, ECS equivalents) | `recommendationOptions[].instanceType`, `savingsOpportunity`, `savingsOpportunityAfterDiscounts`, `performanceRisk`, `migrationEffort`, `platformDifferences` |
+
+For commitment and capacity levers, the limitation fields come from the API, so
+no doc fetch is required and there is no risk of a stale blog-sourced
+limitation. Record the API and the call timestamp as the citation, exactly as a
+URL would be recorded.
+
+> `savingsOpportunityAfterDiscounts` is documented as the savings opportunity
+> "that includes Savings Plans and Reserved Instances discounts". Use it as the
+> realizable saving for capacity levers in preference to computing one from the
+> purchase mix: AWS already did the arithmetic.
+
+Still fetch docs for the **mechanism** sentence on commitment and capacity
+levers, so the report explains what the change is rather than only what it saves.
+
 ## Source tiers and role limits
 
 Tier alone is not enough. Each source has a limit on what it may be the **sole**

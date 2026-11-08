@@ -103,6 +103,42 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 
 ---
 
+## AmazonEC2 | Compute Instance | RunInstances | Hrs
+
+EC2 instance hours. Carries two lever classes beyond configuration.
+
+### L1 -- capacity: rightsize an over-provisioned instance
+
+| Field | Value |
+|---|---|
+| class | capacity |
+| mechanism | Move the instance to a smaller or newer type whose projected utilization still meets the workload. |
+| rate after | `recommendationOptions[].instanceType` priced via `pricing:GetProducts`, or take `savingsOpportunity` directly. |
+| grounding source | `compute-optimizer:GetEC2InstanceRecommendations` (tier 0). Supplies the verdict, the evidence and the limitations in one call. |
+| limitation | `performanceRisk`, `migrationEffort` and `platformDifferences`, all returned per recommendation option. |
+| proof_required | `finding == Overprovisioned`, with `utilizationMetrics` as the evidence and `lookBackPeriodInDays` as the window. |
+| evidence calls | `compute-optimizer:GetEC2InstanceRecommendations`. Fallback when not opted in: `cloudwatch:GetMetricData` on `CPUUtilization`, `NetworkIn`, `NetworkOut`, with stated thresholds. |
+| saving | gross `savingsOpportunity`; realizable `savingsOpportunityAfterDiscounts`, which already includes SP and RI discounts. |
+| effort | From `migrationEffort`. Usually requires a stop/start or replacement. |
+| notes | `Memory` appears in `utilizationMetrics` only with the CloudWatch agent installed. Report its absence rather than ruling the lever out on CPU alone. Compute Optimizer not being opted in is itself a finding; the basic tier is free. |
+
+### L2 -- commitment: cover stable on-demand usage
+
+| Field | Value |
+|---|---|
+| class | commitment |
+| mechanism | Commit to a 1 or 3 year hourly spend in exchange for a discounted rate on matching usage. |
+| rate after | `estimatedSavingsPercentage` and `estimatedMonthlySavings` from the recommendation. |
+| grounding source | `ce:GetSavingsPlansPurchaseRecommendation` (tier 0). Use `ce:GetReservationPurchaseRecommendation` for service-specific RIs. |
+| limitation | The commitment is binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda; EC2 Instance SP locks to family and region for a deeper discount. Carry `term` and `paymentOption` on the recommendation. |
+| proof_required | A material on-demand share in `purchase_mix` on a commitment-eligible service, **and** a non-empty purchase recommendation. One without the other is not a finding. |
+| evidence calls | `purchase_mix` from Step 3, plus the recommendation API. |
+| expected verdict | `INDETERMINATE` when the recommendation comes back empty: AWS declines to recommend on volatile or insufficient usage history, which is information, not an error. |
+| effort | Low to execute, high to reverse. Flag the term length as the real cost. |
+| notes | Run it only for commitment-eligible services. NAT, data transfer, EIP, S3 and CloudWatch are not eligible, so skip the call rather than reporting an empty result as a gap. |
+
+---
+
 ## Entry template
 
 ```markdown

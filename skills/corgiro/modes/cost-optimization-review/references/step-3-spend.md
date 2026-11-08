@@ -8,10 +8,38 @@ step that touches Cost Explorer.
 `UnblendedCost` classifies No Upfront RI recurring charges as "On Demand
 Instances", because the hourly fee is billed after usage. A customer at 80% RI
 coverage can look like 20%. `AmortizedCost` attributes commitment spend
-correctly. Same default and same rationale as `ri-sp-coverage-analysis`.
+correctly.
 
 Use `NetAmortizedCost` when the operator wants negotiated-discount-adjusted
 figures. Use `UnblendedCost` only on explicit request, and state the caveat.
+
+## Resolve `services` first, if it is set
+
+CE service names are exact strings (`Amazon Relational Database Service`, not
+"RDS"). Do not construct them. Enumerate what the customer actually spends on and
+match against that:
+
+```bash
+aws ce get-dimension-values \
+  --dimension SERVICE \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --billing-view-arn <billingViewArn> \
+  --region us-east-1 --output json
+```
+
+Match each operator-supplied name case-insensitively against the returned values
+and their obvious short forms. One unambiguous match resolves silently. Zero
+matches, or more than one, is a question:
+
+> "`RDS` could be: Amazon Relational Database Service, Amazon RDS Service Proxy.
+>  Which did you mean?"
+
+Never substitute a near match on the operator's behalf. Record both the input and
+the resolved CE value in `scope.json`.
+
+With `services` resolved, `top_n` and `min_finding_usd` apply **within** the
+filtered set. Otherwise a drill-down into RDS would return the top 10 lines
+org-wide and then discard the ones that are not RDS.
 
 ## Call 1: the cost lines
 
@@ -24,8 +52,12 @@ aws ce get-cost-and-usage \
     {"Type":"DIMENSION","Key":"USAGE_TYPE"},
     {"Type":"DIMENSION","Key":"PURCHASE_TYPE"}
   ]' \
-  --filter '{"Not":{"Dimensions":{"Key":"RECORD_TYPE",
-             "Values":["Credit","Refund","Tax"]}}}' \
+  --filter '{"And":[
+      {"Not":{"Dimensions":{"Key":"RECORD_TYPE",
+               "Values":["Credit","Refund","Tax"]}}},
+      {"Dimensions":{"Key":"SERVICE","Values":["<resolved>","..."]}}
+    ]}' \
+  # drop the SERVICE clause and the And wrapper when services = all
   --billing-view-arn <billingViewArn>   # omit when null
   --region us-east-1 --output json
 ```
@@ -97,16 +129,20 @@ Per usage-type code, aggregate across months:
 Rank by `monthly_avg` descending. Select the top `top_n` lines at or above
 `min_finding_usd`.
 
-### Apply the two deferrals here, before decoding
+### No lines are excluded
 
-- `purchase_mix` is predominantly `Savings Plans` or `Reserved`, or the line is
-  unused commitment -> do not decode it as an optimization target. Record it and
-  point at `ri-sp-coverage-analysis`.
-- The code is EC2 instance usage (`BoxUsage:*`, `*-BoxUsage:*`) -> point at
-  `ec2-compute-review`.
+Every line above `min_finding_usd` proceeds to decode. The purchase mix does not
+disqualify a line, it selects which lever classes are worth researching:
 
-Record every deferred line in the profile so the report accounts for the whole
-bill, not only the part this mode handles.
+| Purchase mix | Lever classes worth researching |
+|---|---|
+| mostly On Demand on a commitment-eligible service | configuration, **commitment**, capacity |
+| mostly Reserved or Savings Plans | configuration, capacity. A commitment lever is already taken. |
+| On Demand on a non-eligible service (NAT, data transfer, EIP, S3, CloudWatch) | configuration only |
+
+A commitment-*covered* line is analyzed like any other. Step 6 reports a reduced
+realizable saving rather than dropping the finding, because an idle resource is
+waste whether or not a commitment currently pays for it.
 
 ### Carry `purchase_mix` forward
 
@@ -123,18 +159,17 @@ now, so this is the first point at which a question has information behind it.
 ```
 SPEND PROFILE   14 of 14 accounts · 4 regions · AmortizedCost · chargeable
                 CE source 111111111111 (org) · Aug-Oct 2026
+                services: all
 
  #  usage type                 $/mo      purchase mix        accounts
  1  NatGateway-Bytes         12,400      OD 100%             2
- 2  BoxUsage:m6i.large        9,800      SP 94% / OD 6%      5   -> deferred
+ 2  BoxUsage:m6i.large        9,800      SP 94% / OD 6%      5
  3  USE2-USW2-AWS-Out-Bytes   6,200      OD 100%             3
  4  EBS:VolumeUsage.gp2       4,100      OD 100%             7
  ...
 10  CW:Requests                 640      OD 100%             4
 
- deferred to ri-sp-coverage-analysis:  1 line,  $9,800/mo
- deferred to ec2-compute-review:       0 lines
- below min_finding_usd ($500):        23 lines, $3,210/mo total
+ below min_finding_usd ($100):        31 lines, $1,480/mo total
 
  Next: decode 9 lines, research their levers, verify across 14 accounts.
  Estimate: 9 pricing calls · ~25 doc fetches · ~150 describe calls.

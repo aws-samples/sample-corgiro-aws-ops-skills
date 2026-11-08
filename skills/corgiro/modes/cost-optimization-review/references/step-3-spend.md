@@ -90,6 +90,36 @@ from a second call filtered to the selected codes rather than from one wide call
 Drop the `NoRegion` / `global` pseudo-region from the region set, but keep its
 cost in the line total.
 
+## Call 3: precise coverage, for commitment-eligible lines only
+
+`PURCHASE_TYPE` gives a readable On Demand / Reserved / Savings Plans split, which
+is what the gate displays. For the coverage figure that feeds the realizable
+saving, use `RECORD_TYPE`, which separates covered usage from the commitment fee:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost UsageQuantity \
+  --group-by '[
+    {"Type":"DIMENSION","Key":"USAGE_TYPE"},
+    {"Type":"DIMENSION","Key":"RECORD_TYPE"}
+  ]' \
+  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code>"]}}' \
+  --billing-view-arn <billingViewArn> \
+  --region us-east-1 --output json
+```
+
+```
+coverage = SavingsPlanCoveredUsage / (SavingsPlanCoveredUsage + Usage)
+```
+
+`DiscountedUsage` is the RI equivalent. `SavingsPlanRecurringFee`,
+`SavingsPlanNegation`, `RIFee` and `Fee` are commitment accounting lines, not
+usage: exclude them from the denominator.
+
+Skip this call for lines on services that cannot be covered by a commitment
+(NAT, data transfer, EIP, S3, CloudWatch). An empty result there is not a gap.
+
 ## Optional: spike attribution
 
 Only when the operator asked why costs changed:

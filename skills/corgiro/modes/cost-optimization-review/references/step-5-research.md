@@ -31,16 +31,23 @@ Which source supplies layers 2 and 3 depends on the lever class. Two of the thre
 have an AWS API that returns the mechanism, the limitation and the saving
 together, which is stronger grounding than any documentation page.
 
-| Class | Tier-0 grounding source | What the API supplies |
+| Class | Grounding source | What it supplies |
 |---|---|---|
-| configuration | `pricing:GetProducts` + docs | rate after; mechanism and limitation from docs |
-| commitment | `ce:GetSavingsPlansPurchaseRecommendation`, `ce:GetReservationPurchaseRecommendation` | recommended commitment, estimated monthly saving, estimated savings percentage, ROI |
-| capacity | `compute-optimizer:GetEC2InstanceRecommendations` (and the EBS, Lambda, RDS, ECS equivalents) | `recommendationOptions[].instanceType`, `savingsOpportunity`, `savingsOpportunityAfterDiscounts`, `performanceRisk`, `migrationEffort`, `platformDifferences` |
+| configuration | `pricing:GetProducts` (tier 0) + docs (tier 1) | rate after; mechanism and limitation from docs |
+| commitment | CE coverage (tier 0, from Step 3) + docs (tier 1) | the verified coverage gap; the SP-type trade-offs from documentation. **No purchase amount.** |
+| capacity | `compute-optimizer:Get*Recommendations` (tier 0) | `recommendationOptions[].instanceType`, `savingsOpportunity`, `savingsOpportunityAfterDiscounts`, `performanceRisk`, `migrationEffort`, `platformDifferences` |
 
-For commitment and capacity levers, the limitation fields come from the API, so
-no doc fetch is required and there is no risk of a stale blog-sourced
-limitation. Record the API and the call timestamp as the citation, exactly as a
-URL would be recorded.
+> **Do not call `ce:Get*PurchaseRecommendation`.** A Savings Plan's scope is the
+> whole payer family: a Compute SP covers EC2, Fargate and Lambda across every
+> account and region. This mode's analysis unit is one usage type in some
+> accounts. Attaching a recommended hourly commitment to a single cost line
+> implies a precision the data does not support, so the commitment lever reports
+> the **coverage gap** and the **trade-off between SP types**, and never a number
+> to buy. Sizing a commitment is an org-wide exercise against total usage.
+
+For capacity levers the limitation fields come from the API, so no doc fetch is
+required and there is no risk of a stale blog-sourced limitation. Record the API
+and the call timestamp as the citation, exactly as a URL would be recorded.
 
 > `savingsOpportunityAfterDiscounts` is documented as the savings opportunity
 > "that includes Savings Plans and Reserved Instances discounts". Use it as the

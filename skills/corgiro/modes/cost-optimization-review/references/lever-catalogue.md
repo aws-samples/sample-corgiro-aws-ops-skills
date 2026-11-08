@@ -144,15 +144,28 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 |---|---|
 | class | commitment |
 | mechanism | Commit to a 1 or 3 year hourly spend in exchange for a discounted rate on matching usage. |
-| rate after | `estimatedSavingsPercentage` and `estimatedMonthlySavings` from the recommendation. |
-| grounding source | `ce:GetSavingsPlansPurchaseRecommendation` (tier 0). Use `ce:GetReservationPurchaseRecommendation` for service-specific RIs. |
-| limitation | The commitment is binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda; EC2 Instance SP locks to family and region for a deeper discount. Carry `term` and `paymentOption` on the recommendation. |
-| proof_required | A material on-demand share in `purchase_mix` on a commitment-eligible service, **and** a non-empty purchase recommendation. |
-| if_unprovable | "AWS returned no purchase recommendation for this usage, which it declines to do on volatile or short usage history. Review the on-demand share directly and size a commitment against the stable baseline." |
-| evidence calls | `purchase_mix` from Step 3, plus the recommendation API. |
-| expected verdict | `QUANTIFIED` when a recommendation returns. `SCOPED` when it is empty: that is information about usage volatility, not an error. |
-| effort | Low to execute, high to reverse. Flag the term length as the real cost. |
-| notes | Run it only for commitment-eligible services. NAT, data transfer, EIP, S3 and CloudWatch are not eligible, so skip the call rather than reporting an empty result as a gap. |
+| grounding source | CE coverage from Step 3 call 3 (tier 0) for the gap; documentation (tier 1) for the SP-type trade-offs. |
+| limitation | Binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda across accounts and regions; EC2 Instance SP gives a deeper discount but locks instance family and region. |
+| proof_required | The uncovered on-demand share, from `SavingsPlanCoveredUsage / (SavingsPlanCoveredUsage + Usage)`. |
+| if_unprovable | n/a. Coverage is always measurable from CE. |
+| evidence calls | Step 3 call 3 only. |
+| expected verdict | **Always `SCOPED`.** The gap is verified; the commitment size is not knowable at this scope. |
+| effort | Low to execute, high to reverse. The term length is the real cost. |
+| notes | Run only for commitment-eligible services. NAT, data transfer, EIP, S3 and CloudWatch are not eligible, so skip rather than reporting an empty result as a gap. |
+
+> **Never quote a purchase amount.** `ce:Get*PurchaseRecommendation` is not called
+> by this mode. A Compute SP covers EC2, Fargate and Lambda across the whole payer
+> family, so a recommended hourly commitment cannot be attributed to one cost
+> line. Report the gap and the trade-off; sizing is an org-wide exercise.
+
+**Recommendation text.**
+
+> "EC2 instance hours are <X>% on-demand, $<N>/month uncovered. Evaluate
+> commitment coverage: Compute Savings Plans cover EC2, Fargate and Lambda with
+> the most flexibility; EC2 Instance Savings Plans give a deeper discount but lock
+> instance family and region. Sizing a commitment requires org-wide usage
+> analysis rather than this per-usage-type view."
+
 
 ---
 

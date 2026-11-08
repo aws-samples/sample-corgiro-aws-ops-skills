@@ -97,6 +97,10 @@ SCOPED        the lever is valid and the recommendation is written per the
               Not a failure, and never phrased as one.
 ```
 
+Commitment levers are **always** `SCOPED`, by nature rather than by accident:
+the coverage gap is verified, the right commitment size is not knowable at this
+scope.
+
 `SCOPED` replaces what would previously have been called indeterminate. State
 what blocked the measurement as a fact about Corgiro's boundary, then give the
 action anyway:
@@ -122,8 +126,6 @@ AVAILABLE   describe / list on every service      ReadOnlyAccess, not denied
                                                   accepts a member account when
                                                   called from the management
                                                   account.
-            ce:GetSavingsPlansPurchaseRecommendation
-            ce:GetReservationPurchaseRecommendation
             cost-optimization-hub:List*            AWS's own recommendations
 ```
 
@@ -175,10 +177,11 @@ capacity levers
                 multiplying by on_demand_share.
 
 commitment levers
-  gross       = estimatedMonthlySavings from the purchase recommendation
-  realizable  = the same. A commitment purchase has no commitment-coverage
-                discount to net out. Carry the term and payment option as the
-                limitation instead.
+  no saving figure. The lever reports the uncovered on-demand amount as the
+  SIZE OF THE OPPORTUNITY, not as a saving:
+    uncovered = AmortizedCost x (1 - coverage)
+  A discount percentage is not applied, because the commitment that would
+  capture it is sized org-wide, not against this cost line.
 ```
 
 ```

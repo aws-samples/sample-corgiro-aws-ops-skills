@@ -8,8 +8,19 @@ user-invocable: true
 
 Three questions, in order: **what drives the spend**, **what levers exist for
 that specific usage type**, and **which of those levers actually apply in this
-customer's accounts**. A recommendation is only reported when all three are
-answered with evidence.
+customer's accounts**.
+
+**Scope boundary -- service and usage-type granularity, not per-resource cost
+attribution.** Cost Explorer resource-level data is opt-in and retained 14 days,
+so this mode sizes a problem at the usage-type level and locates it by inspecting
+live resource configuration and metrics. It does not attribute dollars to
+individual resources beyond that window.
+
+**A recommendation never asserts a premise Corgiro did not verify.** Where the
+premise is unverified, the recommendation opens with the step that verifies it.
+"Use S3/DynamoDB gateway endpoints" claims a traffic destination Corgiro cannot
+see; "identify the destinations of traffic through NAT, and where it is bound for
+an AWS service use a VPC endpoint" does not.
 
 ## Access pattern
 
@@ -70,46 +81,6 @@ from anywhere.
 | `account_filter` | _(from config)_ | Include/exclude lists. |
 | `max_parallel` | `4` | Concurrent accounts in Step 6 (hard ceiling 10). |
 | `output_format` | `both` | `markdown`, `html`, or `both`. |
-
-## Scope
-
-Every cost line above `min_finding_usd`. No service or category exclusions.
-
-Three lever classes, all first-class. The seven steps are identical for each;
-only the layer-3 evidence differs.
-
-| Class | What it changes | What proves it applies |
-|---|---|---|
-| **configuration** | a setting, a route, an endpoint, an idle resource | `describe` / `list`. Binary. |
-| **commitment** | covers stable on-demand usage with an RI or Savings Plan | the on-demand share from `PURCHASE_TYPE`, plus `ce:GetSavingsPlansPurchaseRecommendation` / `ce:GetReservationPurchaseRecommendation` |
-| **capacity** | rightsizes an over-provisioned resource | `compute-optimizer:Get*Recommendations`, with CloudWatch as fallback. Statistical. |
-
-**Depth limits**, stated because they need data this mode does not gather, not
-because another mode owns them:
-
-- **Commitment utilization, waste and expiry planning.** This mode surfaces a
-  coverage gap as a lever. It does not analyze whether existing commitments are
-  being used, nor plan renewals.
-- **Per-resource cost attribution beyond 14 days.** Cost Explorer resource-level
-  data is opt-in and retained 14 days. This mode gives service and usage-type
-  granularity with resource-level diagnosis, not resource-level cost attribution.
-- **Anything requiring a denied action.** Flow-log traffic splits and
-  log-content drivers are outside the read-only boundary. Reported
-  `SCOPED`, never omitted.
-
-There is no domain taxonomy. The workflow is identical for every service, and
-report grouping comes from the decode step's `productFamily`.
-
-> **Why there is no domain taxonomy.** Steps 3 to 6 are domain-invariant: the
-> procedure is the same whether the cost line is NAT, unattached EBS, an S3
-> storage class or CloudWatch ingestion. The only thing that varies is which
-> `describe` calls prove a given lever, and that lives on the lever record as
-> `proof_required`. A category structure would be a second thing to maintain and
-> could silently exclude a line that mattered. Scope by money instead (`top_n`,
-> `min_finding_usd`): the bill selects the work, so a service nobody anticipated
-> is handled identically to one that was. Report grouping needs no hand-maintained
-> mapping because `productFamily`, `servicename` and `group` come straight from
-> the pricing record and update themselves.
 
 ## Workflow
 
@@ -172,12 +143,6 @@ metrics and the recommendation APIs.
 Every lever that is **relevant to the product** is reported. Evidence decides the
 size and the targets, never the validity. The verdict records how far the
 measurement got: `QUANTIFIED`, `ALREADY DONE`, or `SCOPED`.
-
-**A recommendation must not assert an unverified premise.** Where the premise is
-unverified, the recommendation opens with the step that verifies it. "Use
-S3/DynamoDB gateway endpoints" claims a traffic destination Corgiro cannot see;
-"identify the destinations of traffic through NAT, and where it is bound for an
-AWS service use a VPC endpoint" does not.
 
 ### Step 7: Generate report
 

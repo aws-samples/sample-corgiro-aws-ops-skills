@@ -103,8 +103,9 @@ Run the pre-flight security checks in
 Read [`references/step-2-scope.md`](references/step-2-scope.md).
 
 Resolve `accounts` against `~/.corgiro/state/roster.json` and apply
-`account_filter`. Then resolve the CE source account, asking once and caching the
-answer, never detecting it. Persist `scope.json`.
+`account_filter`. Then resolve the CE source account by asking the operator,
+never by detection. Persist `scope.json`. Regions are resolved in Step 3, where
+the data appears.
 
 ### Step 3: Analyze spend
 
@@ -112,9 +113,10 @@ Read [`references/step-3-spend.md`](references/step-3-spend.md).
 
 From the CE source account, pull `AmortizedCost` grouped by `USAGE_TYPE` and
 `PURCHASE_TYPE`, then by `LINKED_ACCOUNT` and `REGION`. When `services` is set,
-resolve the names against the customer's spend first and filter the query. Rank
-by monthly cost. Present the profile and take **one confirmation** before the
-expensive steps.
+resolve the names against the customer's spend first and filter the query. This
+step also resolves `regions` and measures how many accounts Cost Explorer
+actually returned cost for. Rank by monthly cost, then take **one confirmation**
+before the expensive steps.
 
 ### Step 4: Decode usage types (gate)
 

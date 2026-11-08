@@ -90,8 +90,26 @@ aws ce get-cost-and-usage \
 Two grouping dimensions is the API maximum, which is why account and region come
 from a second call filtered to the selected codes rather than from one wide call.
 
-Drop the `NoRegion` / `global` pseudo-region from the region set, but keep its
-cost in the line total.
+Keep `NoRegion` / `global` cost in each line's total; it is excluded only from
+the resolved region set, below.
+
+### Resolve regions here
+
+The `REGION` grouping in this call is the region data, so `regions` resolves from
+it rather than from a separate discovery call.
+
+```
+regions = auto        take the distinct REGION values this call returned
+regions = explicit    use the list as given, and record in scope.json that
+                      regions were not derived from spend
+```
+
+Drop the `NoRegion` / `global` pseudo-region from the resolved set, and drop the
+region dimension entirely for global products (S3 bucket inventory, Route 53,
+CloudFront) rather than inventing one.
+
+Write the result back to `scope.json` as `regions_resolved`. Step 6's fan-out
+uses that, not the raw parameter.
 
 ### Measure cost coverage here
 

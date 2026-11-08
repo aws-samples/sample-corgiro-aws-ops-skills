@@ -139,21 +139,15 @@ options from `MODE.md` Prerequisites. Do not propose provisioning new access:
 extending coverage to the payer is a setup decision for whoever provisioned
 Corgiro.
 
-## Regions
+## Regions are not resolved here
 
-`regions = auto`: take the regions that appear in the Step 3 spend profile. No
-separate discovery call is needed, because Step 3 already groups by `REGION` from
-the same account.
-
-`regions` explicit: use the list as given, and note in `scope.json` that regions
-were not derived from spend.
-
-Global products (IAM, S3 bucket inventory, Route 53, CloudFront, Organizations)
-carry no region dimension. Drop it rather than inventing one.
+`regions` is resolved in Step 3, because that is where the data appears: the
+spend profile already groups by `REGION` from the same account, so no separate
+discovery call is needed. Step 2 records the parameter value and nothing more.
 
 ## Persist
 
-Write `scope.json`:
+Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
 
 ```json
 {
@@ -174,6 +168,7 @@ Write `scope.json`:
   "accounts_in_roster": 14,
   "accounts_in_scope":  14,
   "regions":           "auto",
+  "regions_resolved":  null,
   "account_filter":    { "include": [], "exclude": [] },
   "skipped":           []
 }

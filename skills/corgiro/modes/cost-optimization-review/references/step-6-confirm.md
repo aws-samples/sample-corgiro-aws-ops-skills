@@ -55,7 +55,7 @@ RECOMMENDATION
    Identify the destinations of that NAT traffic. Where it is bound for an AWS
    service, add the appropriate VPC endpoint: gateway endpoints for S3 and
    DynamoDB carry no additional charge, interface endpoints break even around
-   626 GB/month per service at list rates."
+   <breakeven> GB/month per service at the rates pulled this run."
 ```
 
 Specific about what was found, specific about what to do, and it never claims to
@@ -170,23 +170,37 @@ configuration verdict reports the call that produced it.
 
 Compute both. They diverge whenever a commitment covers the usage.
 
+Three figures, each meaning one thing. Do not collapse them.
+
+```
+gross        the saving if the lever applies to the whole cost line
+bound        gross narrowed by a share Corgiro cannot observe. Optional.
+             Always accompanied by the condition that would confirm it.
+realizable   gross (or bound) after commitment coverage is netted out
+```
+
 ```
 configuration levers
   gross       = usage_quantity x (effective_rate - rate_after)
                 walking price tiers where the SKU is tiered
-  realizable  = gross x on_demand_share   (from Step 3's purchase_mix)
+  bound       = gross x <unobservable share>, when one applies
+  realizable  = (bound or gross) x (1 - coverage)
+                coverage from Step 3 Call 4 (RECORD_TYPE), NOT from the
+                PURCHASE_TYPE mix. The mix is for display; RECORD_TYPE
+                separates covered usage from commitment fees and is the
+                precise figure.
 
 capacity levers
   gross       = savingsOpportunity.estimatedMonthlySavings
   realizable  = savingsOpportunityAfterDiscounts.estimatedMonthlySavings
-                AWS has already applied SP and RI discounts. Prefer this over
-                multiplying by on_demand_share.
+                AWS has already netted SP and RI discounts. Do not apply
+                coverage a second time.
 
 commitment levers
-  no saving figure. The lever reports the uncovered on-demand amount as the
-  SIZE OF THE OPPORTUNITY, not as a saving:
+  no saving figure at all. The lever reports the uncovered amount as the
+  SIZE OF THE OPPORTUNITY:
     uncovered = AmortizedCost x (1 - coverage)
-  A discount percentage is not applied, because the commitment that would
+  No discount percentage is applied, because the commitment that would
   capture it is sized org-wide, not against this cost line.
 ```
 
@@ -200,12 +214,12 @@ idle EC2 instance, 100% Compute Savings Plan covered
 
 When `realizable` is materially below `gross`, report the commitment caveat
 without an expiry date. Commitment expiry comes from payer-scoped APIs that this
-mode does not call, so state the caveat as a condition rather than a date: "this
-saving is not realized while a commitment already covers the usage.
+mode does not call, so state the caveat as a condition rather than a date:
+"this saving is not realized while a commitment already covers the usage".
 
 Where the saving depends on an unobservable share (what fraction of NAT egress is
-S3-bound, for example), report a **bound and its condition**, not a point
-estimate:
+S3-bound, for example), that is the `bound` field, never a point estimate, and it
+always carries the condition:
 
 > "up to $4,959/mo at the customer's effective rate, contingent on the
 > S3/DynamoDB share of NAT egress, which flow-log analysis would confirm"
@@ -223,9 +237,12 @@ estimate:
       "finding": "11 of those 18 are not associated with an S3 gateway endpoint route" }
   ],
   "resources":   { "vpcs": ["vpc-aaaa", "vpc-bbbb"], "route_tables": 11 },
-  "gross":       7380.00,
+  "gross":       12400.00,
+  "bound":       4959.00,
+  "bound_condition": "assumes 40% of NAT egress is S3/DynamoDB bound; flow-log analysis would confirm",
   "realizable":  4959.00,
-  "basis":       "effective rate $0.03024/GB; contingent on S3/DDB egress share",
+  "coverage":    0.0,
+  "basis":       "effective rate $0.03024/GB, 0% commitment coverage",
   "accounts":    ["111111111111"],
   "regions":     ["us-east-1"]
 }
@@ -253,6 +270,7 @@ disbelieves a recommendation can re-run that one call.
 
 ## Persist
 
-Write `aggregated.json`: every lever with its verdict, evidence, resources, gross
-and realizable saving, grouped by `productFamily` for the report, sorted by
-realizable saving descending within `QUANTIFIED`.
+Write `aggregated.json`: every lever with its verdict, evidence, resources and
+the three saving figures, **grouped by cost line** so a line's levers stay
+together in the report, and within each line sorted by `realizable` descending.
+`productFamily` travels on each entry for the report's sub-headings.

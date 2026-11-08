@@ -186,6 +186,14 @@ same group:
 effective_unit_rate = AmortizedCost / UsageQuantity
 ```
 
+**Both sides must cover the same window and be aggregated the same way.** Cost
+Explorer returns a value per period, so a multi-month lookback must be averaged,
+not summed, on both sides. Mixing a windowed sum with a monthly average
+understates the rate by the number of months, which then understates every saving
+derived from it. Carry the window alongside the rate so the arithmetic is
+auditable, and if either side is a sum, fix the aggregation rather than
+compensating downstream.
+
 ```
 NatGateway-Bytes   $12,400 / 410,000 GB = $0.03024/GB  effective
 list                                      $0.04500/GB

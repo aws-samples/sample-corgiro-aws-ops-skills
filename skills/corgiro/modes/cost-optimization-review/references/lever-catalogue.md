@@ -20,6 +20,10 @@ usage-type codes, for instance) while keeping genuinely different products apart
 A regex over raw strings would fold `NatGateway-Prvd-Bytes` into the standard NAT
 lever set, which is exactly the failure Step 4 exists to prevent.
 
+> **No rate in this file is an input.** Every figure here illustrates the shape
+> of a calculation. Prices move, and the customer's effective rate is usually
+> below list. Re-pull every number from the pricing API on each run.
+
 ## Using an entry
 
 ```
@@ -100,7 +104,7 @@ verified fact, then the verification step, then the grounded economics:
 | if_unprovable | "Identify which AWS services dominate NAT egress, from VPC Flow Logs or from the workload owner. Add an interface endpoint for any service above the breakeven volume." |
 | evidence calls | none sufficient. The split is only in VPC Flow Logs, and `logs:FilterLogEvents` is denied by `CorgiroReadOnlyRole-DataPlaneDeny`. |
 | expected verdict | `SCOPED` on a stock deployment. State the boundary as a fact, give the breakeven, and give the action. Never phrase it as an apology. |
-| breakeven | `(0.01 x 730 x AZ_count) / (effective_nat_rate - endpoint_rate_per_GB)`. At list rates with 3 AZs: `$21.90 / $0.035` = ~626 GB/month per service. Recompute at the customer's effective rate. |
+| breakeven | `(endpoint_hourly_rate x 730 x AZ_count) / (effective_nat_rate - endpoint_rate_per_GB)`. Illustrative only, at list rates with 3 AZs: `$21.90 / $0.035` = ~626 GB/month per service. Recompute every term from the pricing API at run time. |
 | effort | Medium. Per-service, and DNS behaviour changes for the targeted service. |
 
 ### L3 -- Per-AZ NAT gateway placement

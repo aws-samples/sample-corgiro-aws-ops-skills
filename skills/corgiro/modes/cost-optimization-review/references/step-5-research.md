@@ -27,9 +27,9 @@ See [`lever-catalogue.md`](lever-catalogue.md).
 
 ## Lever classes and their grounding source
 
-Which source supplies layers 2 and 3 depends on the lever class. Two of the three
-have an AWS API that returns the mechanism, the limitation and the saving
-together, which is stronger grounding than any documentation page.
+Which source supplies layers 2 and 3 depends on the lever class. One of the
+three, capacity, has an AWS API that returns the mechanism, the limitation and
+the saving together, which is stronger grounding than any documentation page.
 
 | Class | Grounding source | What it supplies |
 |---|---|---|
@@ -142,10 +142,14 @@ Levers that trade per-unit cost for a fixed charge need the crossover computed
 from live rates, not asserted:
 
 ```
-fixed     $0.01/endpoint-hour x 730 x <AZ count>
+fixed     <hourly_rate_from_pricing_api> x 730 x <AZ count>
 variable  effective_rate - replacement_rate per unit
 breakeven fixed / variable
 ```
+
+Every term is pulled at run time. No rate in this file or the catalogue may be
+used as an input; figures that appear there are illustrations of the shape, and
+prices move.
 
 State the basis. If the replacement product has no existing usage its effective
 rate is not observable, so use list for that side and flag the assumption.
@@ -159,7 +163,7 @@ rate is not observable, so use list for that side and flag the assumption.
   "name":                 "S3 / DynamoDB gateway endpoints",
   "mechanism":            "<one sentence>",
   "mechanism_source":     { "url": "...", "tier": 1, "fetched": "2026-11-08" },
-  "rate_now":             { "value": 0.03024, "unit": "GB", "basis": "effective" },
+  "effective_rate":       { "value": 0.03024, "unit": "GB", "basis": "effective" },
   "rate_after":           { "value": 0.0, "unit": "GB",
                             "source": "<doc url>", "tier": 1 },
   "limitation":           "<what constrains it>",

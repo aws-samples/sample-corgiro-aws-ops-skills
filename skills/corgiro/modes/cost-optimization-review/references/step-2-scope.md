@@ -97,8 +97,10 @@ explicit rather than implied by whichever account happened to be used.
 
 If calls 1 or 2 fail, **re-ask**. Do not silently fall back to a narrower scope:
 a per-account sweep presented as organization-wide is worse than a hard stop.
-If no option works, hard stop with the four satisfaction paths from `MODE.md`
-Prerequisites.
+If no option works, hard stop. Report which accounts were tried and the three
+options from `MODE.md` Prerequisites. Do not propose provisioning new access:
+extending coverage to the payer is a setup decision for whoever provisioned
+Corgiro.
 
 ## Regions
 

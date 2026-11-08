@@ -44,22 +44,19 @@ from anywhere.
   [`credential-resolution.md`](../../references/credential-resolution.md#auth-method-dispatch)
   for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
-- **An account that can see organization-wide cost.** This is a hard
-  dependency. Corgiro has no payer access by default:
-  service-managed StackSets skip the management account, and the base profile is
-  the tooling account. Satisfy it one of four ways:
-  1. `identity-center-direct` with a permission set on the payer.
-  2. Deploy
-     [`../../assets/corgiro-readonly-role.yaml`](../../assets/corgiro-readonly-role.yaml)
-     as a standalone stack in the management account with the same
-     `ToolingAccountId` and `ExternalId`. Weigh it first: it grants payer read
-     to every operator identity.
-  3. A Billing Conductor billing-group primary account. Common for customers
-     billed through a distributor, who have no payer access at all. Rates are
-     **proforma**, not invoice.
-  4. Per-account member Cost Explorer. Last resort: each account sees only
-     itself, the payer must have enabled it org-wide, and it costs N times the
-     requests.
+- **An account that can see organization-wide cost**, already in the roster and
+  reachable. This is a hard dependency, and it is satisfied at setup time: this
+  mode does not arrange access it was not granted. One of:
+  1. The payer, when the operator holds a permission set on it.
+  2. A Billing Conductor billing-group primary account. Common for customers
+     billed through a distributor or solution provider, who have no payer access
+     at all. Rates are **proforma**, not invoice, and the report says so.
+  3. A single account, covering only itself. The payer must have granted member
+     accounts Cost Explorer access, which is an org-wide all-or-none setting.
+
+  If none is reachable, stop and report which accounts were tried. Extending
+  coverage to the payer is a setup decision for whoever provisioned Corgiro, not
+  an action this mode or its operator should take from here.
 - **Web access.** Step 5 fetches AWS documentation. Without it, Steps 3 and 4
   still run and the mode reports decoded spend with lever research unavailable.
 - Read [`../../references/credential-resolution.md`](../../references/credential-resolution.md),
@@ -223,7 +220,7 @@ directory after writing: `chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*`.
 
 | Symptom | Action |
 |---|---|
-| No account can see organization-wide cost | Hard stop. Print the four options from Prerequisites and ask which to pursue. CE is this mode's entry point, so there is nothing to degrade to. |
+| No account can see organization-wide cost | Hard stop. Report which accounts were tried and the three options from Prerequisites. Do not propose provisioning new access. CE is this mode's entry point, so there is nothing to degrade to. |
 | Cost Explorer `AccessDeniedException` on the named CE source account | The account is wrong or lacks `ce:*`. Re-ask rather than silently falling back to a narrower scope. |
 | `billing:ListBillingViews` denied or absent from `ReadOnlyAccess` | Ask the operator for the billing view ARN. Nothing else changes. |
 | A name in `services` matches no service in the customer's spend | Show the resolved service list and ask. Never substitute a near match silently. |

@@ -122,12 +122,18 @@ AVAILABLE   describe / list on every service      ReadOnlyAccess, not denied
             compute-optimizer:GetEC2InstanceRecommendations
                                                   and the EBS / Lambda / RDS /
                                                   ECS equivalents. Opt-in; the
-                                                  basic tier is free. accountIds
-                                                  accepts a member account when
-                                                  called from the management
-                                                  account.
-            cost-optimization-hub:List*            AWS's own recommendations
+                                                  basic tier is free.
 ```
+
+Call Compute Optimizer **in each account, as part of the fan-out**, using that
+account's own credentials. Its `accountIds` parameter can return a member
+account's recommendations when called from the management account, but do not
+rely on that: Corgiro has no payer access by default, and the per-account call
+needs none.
+
+Do not call `cost-optimization-hub:*` or `savingsplans:*`. Both are payer-scoped,
+no lever in this mode uses them, and listing them as evidence sources implies a
+payer dependency the mode does not have.
 
 ```
 DENIED by CorgiroReadOnlyRole-DataPlaneDeny
@@ -192,10 +198,10 @@ idle EC2 instance, 100% Compute Savings Plan covered
                         usage or the plan expires
 ```
 
-When `realizable` is materially below `gross`, report the commitment caveat and
-the expiry date. The expiry is available read-only from
-`savingsplans:DescribeSavingsPlans`, and from `EndDateTime` on the
-`ce:GetReservationUtilization` response.
+When `realizable` is materially below `gross`, report the commitment caveat
+without an expiry date. Commitment expiry comes from payer-scoped APIs that this
+mode does not call, so state the caveat as a condition rather than a date: "this
+saving is not realized while a commitment already covers the usage.
 
 Where the saving depends on an unobservable share (what fraction of NAT egress is
 S3-bound, for example), report a **bound and its condition**, not a point

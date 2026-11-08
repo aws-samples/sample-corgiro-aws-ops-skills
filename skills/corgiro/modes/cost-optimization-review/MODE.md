@@ -31,11 +31,16 @@ account and fans out across the roster:
 |---|---|
 | `ce:*`, `billing:ListBillingViews` | ONE account, the CE source account |
 | `pricing:*` | anywhere. Global and account-agnostic, use the base profile |
-| `organizations:*` | base profile |
-| `describe`/`list`, `cloudwatch:GetMetricData` | the account that OWNS the resource, fanned out per roster `via` |
+| `describe`/`list`, `cloudwatch:GetMetricData`, `compute-optimizer:Get*` | the account that OWNS the resource, fanned out per roster `via` |
 
 Cost comes from one account, evidence comes from every account, pricing comes
 from anywhere.
+
+> **No payer access is required.** Corgiro has none by default, and this mode
+> assumes none. It calls no Organizations API: the account set comes from the
+> roster, and the CE source account is an operator answer rather than something
+> derived from org topology. Everything else runs in the account that owns the
+> resource.
 
 ## Prerequisites
 
@@ -45,7 +50,7 @@ from anywhere.
   for the login command for your `authMethod`).
 - A fresh coverage snapshot (run `/corgiro account-coverage` if stale).
 - **One account that can read the cost you want analyzed**, already in the roster
-  and reachable. Satisfied at setup time: this mode does not arrange access it
+  and reachable. Not necessarily the payer. Satisfied at setup time: this mode does not arrange access it
   was not granted.
 
   Usually the payer. For customers billed through a distributor or solution
@@ -70,7 +75,7 @@ from anywhere.
 | Parameter | Default | Description |
 |---|---|---|
 | `accounts` | _(all reachable -- org-wide)_ | Explicit account list. Omit (or `all`) to analyze the whole org; provide account IDs or roster names to scope to just those. Names are resolved against the roster, never guessed. |
-| `ce_source_account` | _(from config, else ask)_ | The one account Cost Explorer is queried from, whatever `accounts` is set to. Asked once and cached, never auto-detected. See Step 2. |
+| `ce_source_account` | _(ask)_ | The one account Cost Explorer is queried from, whatever `accounts` is set to. Asked each run, never auto-detected, never written to config. See Step 2. |
 | `metric` | `AmortizedCost` | `AmortizedCost`, `NetAmortizedCost`, `UnblendedCost`. See Step 3 for why the default matters. |
 | `lookback_months` | `3` | Months of history for the spend profile (`1`, `3`, `6`, `12`). |
 | `services` | `all` | Restrict the analysis to specific AWS services. Accepts a list. Names are resolved against the customer's actual spend, never assumed. See Step 3. |

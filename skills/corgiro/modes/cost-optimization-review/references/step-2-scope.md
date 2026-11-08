@@ -57,8 +57,7 @@ primary.
 So ask, once, and cache the answer:
 
 Resolve one CE source account on every run, regardless of what `accounts` is set
-to. Ask once, cache the answer, and ask again only if the cached account becomes
-unreachable.
+to. Ask the operator; never detect it.
 
 > "Which account should I read cost from? Give me the account ID.
 >
@@ -78,20 +77,13 @@ below determines what that account can actually see.
 > it, and the deferred version fails mid-run after burning calls. Per-account
 > Cost Explorer is a fallback, never a default.
 
-Cache under a `costAnalysis` block in `~/.corgiro/config.json`:
+**Do not write this to `~/.corgiro/config.json`.** Only `setup-corgiro` and
+`account-coverage` write there, and a mode that invents config keys creates state
+nothing else knows how to manage. Record the answer in the run's `scope.json`
+instead, and ask again next run.
 
-```json
-"costAnalysis": {
-  "ceSourceAccountId": "111111111111",
-  "billingViewArn":    null,
-  "rateBasis":         "chargeable"
-}
-```
-
-> Any new config key must also be documented in
-> [`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md).
-> Writing keys that `setup-corgiro` never creates is an existing defect
-> elsewhere in the repo and must not be repeated.
+If the operator wants to stop being asked, the right fix is for `setup-corgiro`
+to collect it, which is a separate change to that mode.
 
 ## Verify, do not trust
 

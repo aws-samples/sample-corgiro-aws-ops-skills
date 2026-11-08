@@ -9,7 +9,7 @@ account the cost comes from.
 
 There is deliberately no label for "what it can see". Coverage is measured, not
 classified: Step 3 counts the distinct `LINKED_ACCOUNT` values Cost Explorer
-actually returns and compares them to the roster. "14 of 14 accounts" is more
+actually returns and compares them to `accounts_in_scope`. "14 of 14" is more
 honest than a category, and it works identically for a payer, a Billing
 Conductor primary and a single account without Corgiro needing to understand
 any of their topologies.
@@ -37,7 +37,7 @@ Credential dispatch stays in
 [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
 Do not restate it.
 
-## The CE source account: ask once, cache, never detect
+## The CE source account: ask, never detect
 
 **Detection is harmful here, not merely unreliable.** Customers billed through a
 distributor or solution provider have no access to the payer: it belongs to the
@@ -54,10 +54,8 @@ Corgiro also cannot discover the Billing Conductor path itself.
 the operator role lives in the tooling account, which is not the billing-group
 primary.
 
-So ask, once, and cache the answer:
-
-Resolve one CE source account on every run, regardless of what `accounts` is set
-to. Ask the operator; never detect it.
+So resolve one CE source account on every run, regardless of what `accounts` is
+set to, by asking the operator.
 
 > "Which account should I read cost from? Give me the account ID.
 >
@@ -110,14 +108,15 @@ Call 3 is self-describing: it returns only views the caller can see, and
 
 | Result | Action |
 |---|---|
-| a `BILLING_GROUP` view is present | use its `arn` as `BillingViewArn` and set `rateBasis: proforma`. |
-| only `PRIMARY` | `rateBasis: chargeable`. |
+| a `BILLING_GROUP` view is present | record its `arn` as `billing_view_arn` and set `rate_basis: proforma`. |
+| only `PRIMARY` | `rate_basis: chargeable`. |
 | call denied, or `billing:*` absent from `ReadOnlyAccess` | ask the operator for the billing view ARN. Nothing else changes. |
 
-Pass the resolved ARN as `BillingViewArn` on `ce:GetCostAndUsage` so the scope is
-explicit rather than implied by whichever account happened to be used.
+Pass the resolved ARN as the `--billing-view-arn` argument on every
+`ce get-cost-and-usage` call, so the scope is explicit rather than implied by
+whichever account happened to be used.
 
-> **`rateBasis` is derived, never offered as a choice.** A Billing Conductor
+> **`rate_basis` is derived, never offered as a choice.** A Billing Conductor
 > billing group member "cannot view historical, billable cost and usage data in
 > Cost Explorer"
 > (https://docs.aws.amazon.com/help-panel/billingconductor/latest/console/hp-billing-group-type.html),
@@ -145,6 +144,22 @@ Corgiro.
 spend profile already groups by `REGION` from the same account, so no separate
 discovery call is needed. Step 2 records the parameter value and nothing more.
 
+## Two account counts, deliberately distinct
+
+Both are printed in the report header, and they are not interchangeable.
+
+```
+accounts_in_scope   written here, into scope.json. The evidence fan-out set:
+                    roster entries matching `accounts`, after account_filter.
+                    Says where Step 6 will look.
+accounts_visible    written by Step 3, into spend-profile.json. The accounts
+                    Cost Explorer actually returns cost for from the CE source
+                    account. Says how much of the bill Step 3 could see.
+```
+
+A run where `accounts_visible` is 9 of 14 is not an organization-wide analysis
+and must not read like one.
+
 ## Persist
 
 Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
@@ -158,9 +173,9 @@ Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
   "rate_basis":        "chargeable",
   "metric":            "AmortizedCost",
   "lookback_months":   3,
-  "accounts":           "all",
-  "accounts_in_scope":  [],
-  "not_in_roster":      [],
+  "accounts":          "all",
+  "accounts_in_scope": [],
+  "not_in_roster":     [],
   "services":          "all",
   "services_resolved": [],
   "top_n":             10,
@@ -172,16 +187,3 @@ Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3:
 }
 ```
 
-Two counts, deliberately distinct, and both printed in the report header:
-
-```
-accounts_in_scope   written here. The evidence fan-out set: roster entries
-                    matching `accounts`, after account_filter.
-accounts_visible    written by Step 3. The accounts Cost Explorer actually
-                    returns cost for from the CE source account.
-```
-
-They are not interchangeable. `accounts_in_scope` says where Step 6 will look;
-`accounts_visible` says how much of the bill Step 3 could see. A run where
-`accounts_visible` is 9 of 14 is not an organization-wide analysis and must not
-read like one.

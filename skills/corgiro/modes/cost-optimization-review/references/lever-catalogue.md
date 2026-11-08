@@ -57,7 +57,10 @@ Per-GB data processed by NAT gateways.
 `groupDescription`: "Charge for per GB data processed by NatGateways".
 Pricing SKU for the current path: `59S5R83GFPUAGVR5` (us-east-1).
 
-Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
+`NatGateway-Hours` (SKU `M2YSHUBETB3JX4M4`) is a **separate entry** under this
+key scheme: same product family, different `unit` (`Hrs`). It is referenced by L3
+below because the per-AZ lever trades GB against hours, but its levers are not
+these.
 
 > Sibling products that are **not** this entry: `RegionalNatGateway-*` (regional
 > NAT, automatic multi-AZ expansion) and `NatGateway-Prvd-*` (provisioned
@@ -67,6 +70,7 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 
 | Field | Value |
 |---|---|
+| class | configuration |
 | mechanism | Gateway VPC endpoints provide connectivity to Amazon S3 and DynamoDB without requiring an internet gateway or a NAT device for the VPC. |
 | mechanism source | https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html (tier 1) |
 | rate after | `$0.00`. "There is no additional charge for using gateway endpoints." Same page. Corroborated by the absence of any gateway-endpoint usage type in the pricing API, though the citation is the authority, not the absence. |
@@ -77,7 +81,7 @@ Related SKUs: `M2YSHUBETB3JX4M4` (`NatGateway-Hours`, hourly charge).
 | proof_required | A private subnet whose route table sends `0.0.0.0/0` to a NAT gateway **and** which is not associated with an S3 or DynamoDB gateway endpoint route. Evaluate **per route table**, not per VPC. |
 | if_unprovable | "Identify the destinations of traffic through NAT. Where it is bound for an AWS service, use a VPC endpoint." Corgiro can prove the routing gap but never the destination mix, so this clause is used on essentially every run. |
 | evidence calls | `ec2:DescribeRouteTables`, `ec2:DescribeVpcEndpoints` (filter `vpc-endpoint-type=Gateway`), `ec2:DescribeNatGateways`, `ec2:DescribeSubnets` |
-| saving bound | Bounded by the S3/DynamoDB share of NAT egress, which no read-only API exposes. Report a bound and its condition, never a point estimate. |
+| saving | `gross` from the full line; `bound` narrowed by the S3/DynamoDB share of NAT egress, which no read-only API exposes, with a mandatory `bound_condition`. Never a point estimate. |
 | effort | Low. Additive, no data-path change for other traffic. |
 
 **Recommendation text.** Do not write "use S3/DynamoDB gateway endpoints": that
@@ -91,11 +95,11 @@ verified fact, then the verification step, then the grounded economics:
 > additional charge, interface endpoints break even around <X> GB/month per
 > service."
 
-
 ### L2 -- Interface (PrivateLink) endpoints for other AWS services
 
 | Field | Value |
 |---|---|
+| class | configuration |
 | mechanism | A PrivateLink interface endpoint keeps traffic to a supported AWS service off the NAT path. SKU attribute `endpointType: PrivateLink`. |
 | rate after | `$0.01` per endpoint-hour (`EN2N5TATXE673A3B`) plus tiered data processing from `$0.010/GB` (`DQYYEZBCWSW5XS2R`). **Tiered: walk the dimensions, sorted by `beginRange`.** |
 | rate source | pricing API, service code `AmazonVPC` (tier 0) |
@@ -111,6 +115,7 @@ verified fact, then the verification step, then the grounded economics:
 
 | Field | Value |
 |---|---|
+| class | configuration |
 | mechanism | A NAT gateway in each AZ avoids cross-AZ data transfer for egress originating in that AZ. |
 | rate | `$0.045` per NAT-hour (`M2YSHUBETB3JX4M4`, us-east-1) |
 | limitation | One NAT per AZ adds a full hourly charge each, so the fixed cost scales with AZ count. Consider `RegionalNatGateway-*` where automatic multi-AZ expansion is preferable. |
@@ -124,7 +129,8 @@ verified fact, then the verification step, then the grounded economics:
 
 ## AmazonEC2 | Compute Instance | RunInstances | Hrs
 
-EC2 instance hours. Carries two lever classes beyond configuration.
+EC2 instance hours. Carries capacity and commitment levers; configuration levers
+for this product are researched live and not yet cached here.
 
 ### L1 -- capacity: rightsize an over-provisioned instance
 
@@ -138,7 +144,7 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 | proof_required | `finding == Overprovisioned`, with `utilizationMetrics` as the evidence and `lookBackPeriodInDays` as the window. |
 | if_unprovable | "Enable AWS Compute Optimizer (the basic tier is free) to identify which instances are over-provisioned and by how much. Rightsizing applies to any EC2 fleet; only the targets are unknown until it is enabled." |
 | evidence calls | `compute-optimizer:GetEC2InstanceRecommendations`. Fallback when not opted in: `cloudwatch:GetMetricData` on `CPUUtilization`, `NetworkIn`, `NetworkOut`, with stated thresholds. |
-| saving | gross `savingsOpportunity`; realizable `savingsOpportunityAfterDiscounts`, which already includes SP and RI discounts. |
+| saving | `gross` = `savingsOpportunity.estimatedMonthlySavings`; `realizable` = `savingsOpportunityAfterDiscounts.estimatedMonthlySavings`, which already nets SP and RI discounts. Do not apply coverage a second time. |
 | effort | From `migrationEffort`. Usually requires a stop/start or replacement. |
 | notes | `Memory` appears in `utilizationMetrics` only with the CloudWatch agent installed. Report its absence rather than ruling the lever out on CPU alone. Compute Optimizer not being opted in is itself a finding; the basic tier is free. |
 
@@ -148,11 +154,11 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 |---|---|
 | class | commitment |
 | mechanism | Commit to a 1 or 3 year hourly spend in exchange for a discounted rate on matching usage. |
-| grounding source | CE coverage from Step 3 call 3 (tier 0) for the gap; documentation (tier 1) for the SP-type trade-offs. |
+| grounding source | CE commitment coverage from Step 3 Call 4 (tier 0) for the gap; documentation (tier 1) for the SP-type trade-offs. |
 | limitation | Binding for the term. Flexibility varies by type: Compute SP spans EC2, Fargate and Lambda across accounts and regions; EC2 Instance SP gives a deeper discount but locks instance family and region. |
 | proof_required | The uncovered on-demand share, from `SavingsPlanCoveredUsage / (SavingsPlanCoveredUsage + Usage)`. |
 | if_unprovable | n/a. Coverage is always measurable from CE. |
-| evidence calls | Step 3 call 3 only. |
+| evidence calls | Step 3 Call 4 only. |
 | expected verdict | **Always `SCOPED`.** The gap is verified; the commitment size is not knowable at this scope. |
 | effort | Low to execute, high to reverse. The term length is the real cost. |
 | notes | Run only for commitment-eligible services. NAT, data transfer, EIP, S3 and CloudWatch are not eligible, so skip rather than reporting an empty result as a gap. |
@@ -170,7 +176,6 @@ EC2 instance hours. Carries two lever classes beyond configuration.
 > instance family and region. Sizing a commitment requires org-wide usage
 > analysis rather than this per-usage-type view."
 
-
 ---
 
 ## Entry template
@@ -185,6 +190,7 @@ Pricing SKU for the current path: `<sku>` (<region>).
 
 | Field | Value |
 |---|---|
+| class | configuration \| commitment \| capacity |
 | mechanism | |
 | mechanism source | <url> (tier <n>) |
 | rate after | |
@@ -194,6 +200,7 @@ Pricing SKU for the current path: `<sku>` (<region>).
 | proof_required | |
 | if_unprovable | |
 | evidence calls | |
+| saving | which of gross / bound / realizable apply, and from where |
 | expected verdict | |
 | effort | |
 ```

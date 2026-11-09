@@ -31,13 +31,20 @@ All calls run in `us-east-1` from the payer-level session (`cross-account-role`:
 
    Keep values whose suffix matches exactly. Cost Explorer dimension filters on `get-cost-and-usage` match exact values only, so the resolved list is what goes into the filters below.
 
+   Observed against real billing data - follow these rules:
+
+   - **Never map a prefix to a region yourself.** Prefixes are not derivable from region names (`APS9-` is ap-southeast-7, `APS7-` is ap-southeast-5, `EU-` is eu-west-1), and the same region can be unprefixed for one service and prefixed for another (us-east-1 is `NatGateway-Bytes` but `USE1-VpcEndpoint-Bytes`). Always group by the `REGION` dimension and read the region from the result.
+   - The `VpcEndpoint` search also returns `*-VpcEndpoint-GWLBE-Hours` / `-Bytes` (Gateway Load Balancer endpoints), `*-VpcEndpoint-Service-Hours` (endpoint *service* owner charges) and `*-VpcEndpoint-Tunnel-Hours`. Keep only values ending exactly in `-VpcEndpoint-Hours` and `-VpcEndpoint-Bytes` that contain neither `GWLBE` nor `Service`; the others are not interface endpoint prices.
+
 2. NAT Gateway data processing per account/region:
 
    ```bash
    aws ce get-cost-and-usage \
      --time-period Start=<start>,End=<end> --granularity MONTHLY \
      --metrics UnblendedCost UsageQuantity \
-     --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":[<NatGateway-Bytes values>]}}' \
+     --filter '{"And":[
+       {"Dimensions":{"Key":"USAGE_TYPE","Values":[<NatGateway-Bytes values>]}},
+       {"Dimensions":{"Key":"RECORD_TYPE","Values":["Usage"]}}]}' \
      --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
      --region us-east-1 --output json
    ```
@@ -50,10 +57,13 @@ All calls run in `us-east-1` from the payer-level session (`cross-account-role`:
      --metrics UnblendedCost UsageQuantity \
      --filter '{"And":[
        {"Dimensions":{"Key":"USAGE_TYPE","Values":[<DataTransfer-Regional-Bytes values>]}},
-       {"Dimensions":{"Key":"OPERATION","Values":["PublicIP-In","PublicIP-Out"]}}]}' \
+       {"Dimensions":{"Key":"OPERATION","Values":["PublicIP-In","PublicIP-Out"]}},
+       {"Dimensions":{"Key":"RECORD_TYPE","Values":["Usage"]}}]}' \
      --group-by Type=DIMENSION,Key=LINKED_ACCOUNT Type=DIMENSION,Key=REGION \
      --region us-east-1 --output json
    ```
+
+   Always include the `RECORD_TYPE = Usage` clause. Without it, credits and refunds come back as negative-cost rows with `REGION = NoRegion` and distort per-region unit prices. Use the exact `OPERATION` values `PublicIP-In` / `PublicIP-Out`; the same usage types also carry `LoadBalancing-PublicIP-*` and `LoadBalancing-NLB-PublicIP-*`, which are load balancer traffic, not NAT traffic.
 
    Run the same call with `OPERATION` = `InterZone-In`,`InterZone-Out` to derive the cross-AZ unit price, and once filtered to the resolved `VpcEndpoint-*` usage types grouped by `REGION` + `USAGE_TYPE` to derive endpoint unit prices where the customer already runs endpoints (see `savings-model.md`).
 
@@ -71,7 +81,9 @@ All calls run in `us-east-1` from the payer-level session (`cross-account-role`:
      --region us-east-1 --output json
    ```
 
-   Paginate with `--next-page-token`. Keep rows whose `RESOURCE_ID` contains `natgateway/nat-` (case-insensitive) - these are public-IP transfer charges billed to a specific NAT Gateway. Scale to a monthly figure: `value x (days in month / days in window)`. Record `attribution: resource-level` for every account/region with at least one matching row.
+   Paginate with `--next-page-token`. NAT Gateway rows have `RESOURCE_ID = arn:aws:ec2:<region>:<account>:natgateway/nat-<id>`. Keep rows whose `RESOURCE_ID` contains `natgateway/nat-` (case-insensitive) - these are public-IP transfer charges billed to a specific NAT Gateway; take the region from the ARN. Expect the same call to also return EC2 instance IDs (`i-...`): that is instances with public IPs talking to in-region endpoints directly, not NAT traffic. Exclude them from attribution, but report their total GB in the Recommendations (it is the reason the proportional fallback needs its cap). Scale to a monthly figure: `value x (days in month / days in window)`. Record `attribution: resource-level` for every account/region with at least one matching row.
+
+   The 14-day window ends today, so it rarely lines up with `month`. State both date ranges in the Methodology.
 
    If the call fails with `DataUnavailableException` or a `ValidationException` about resource-level data, record `attribution: proportional` for all pairs and continue.
 

@@ -116,7 +116,9 @@ skills/
     │   ├── corgiro-readonly-role.yaml    ← CloudFormation template (Option B)
     │   ├── report-theme.css              ← shared report styling
     │   ├── corgiro-logo.png              ← logo (96×96 source)
-    │   └── corgiro-logo.datauri          ← logo as data URI (inlined into reports)
+    │   ├── corgiro-logo.datauri          ← logo as data URI (inlined into reports)
+    │   ├── vpce-costopt-visuals.css      ← vpce-costopt diagram/bar styles + dark mode
+    │   └── vpce-costopt-flow.svg         ← vpce-costopt NAT vs endpoint flow diagram
     └── modes/
         ├── setup-corgiro/
         │   ├── MODE.md                   ← router: choose Option A or B
@@ -137,7 +139,8 @@ skills/
         │   ├── MODE.md
         │   └── references/
         │       ├── traffic-attribution.md
-        │       └── savings-model.md
+        │       ├── savings-model.md
+        │       └── report-visuals.md
         ├── mode-builder/
         │   ├── MODE.md
         │   └── references/

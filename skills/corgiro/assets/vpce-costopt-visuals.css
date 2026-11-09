@@ -1,0 +1,107 @@
+/* vpce-costopt report visuals. Inlined AFTER report-theme.css (it extends the
+   shared theme, never replaces it). Diagram and bar colours come from the shared
+   palette variables, so the dark-mode remap below re-colours everything. */
+
+:root {
+  --vx-red: var(--red-600);
+  --vx-blue: var(--blue-600);
+  --vx-pub-fill: var(--green-50);
+  --vx-priv-fill: var(--blue-50);
+  --vx-line: var(--zinc-300);
+  --vx-text: var(--zinc-700);
+  --vx-muted: var(--zinc-500);
+  --vx-node: var(--purple-600);
+  --vx-ec2: var(--orange-600);
+}
+
+/* Dark mode: remap the shared palette so every existing class follows. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --white: #18181B;
+    --zinc-50: #0B0B0D; --zinc-100: #27272A; --zinc-200: #3F3F46; --zinc-300: #52525B;
+    --zinc-400: #71717A; --zinc-500: #A1A1AA; --zinc-600: #D4D4D8; --zinc-700: #E4E4E7;
+    --zinc-800: #F4F4F5; --zinc-900: #FAFAFA; --zinc-950: #FFFFFF;
+    --red-50: #3A1212;    --red-500: #EF4444;    --red-600: #F87171;
+    --green-50: #0F2A1A;  --green-500: #22C55E;  --green-600: #4ADE80;
+    --blue-50: #13213D;   --blue-500: #3B82F6;   --blue-600: #60A5FA;
+    --amber-50: #33240A;  --amber-500: #F59E0B;  --amber-600: #FBBF24;
+    --orange-50: #351A0B; --orange-500: #F97316; --orange-600: #FB923C;
+    --purple-50: #2A1440; --purple-500: #A855F7; --purple-600: #C084FC;
+  }
+}
+
+/* ---- Flow diagram (inline SVG) ---- */
+.vx-figure { background: var(--white); border: 1px solid var(--zinc-200); border-radius: var(--radius-lg); padding: 12px; }
+.vx-figure svg { width: 100%; height: auto; display: block; }
+.vx-figure figcaption { font-size: 0.8125rem; color: var(--zinc-500); margin-top: 8px; }
+.vx-box   { fill: none; stroke: var(--vx-line); stroke-width: 1.5; }
+.vx-dash  { stroke-dasharray: 6 5; }
+.vx-pub   { fill: var(--vx-pub-fill); stroke: none; }
+.vx-priv  { fill: var(--vx-priv-fill); stroke: none; }
+.vx-svc   { fill: var(--zinc-50); stroke: var(--vx-line); stroke-width: 1.5; }
+.vx-label { fill: var(--vx-text); font: 600 13px var(--font-sans); }
+.vx-small { fill: var(--vx-muted); font: 500 11px var(--font-sans); }
+.vx-node  { fill: var(--white); stroke: var(--vx-node); stroke-width: 2; }
+.vx-node-text { fill: var(--vx-node); font: 700 11px var(--font-sans); text-anchor: middle; }
+.vx-ec2   { fill: var(--white); stroke: var(--vx-ec2); stroke-width: 2; }
+.vx-ec2-text { fill: var(--vx-ec2); font: 700 11px var(--font-sans); text-anchor: middle; }
+.vx-vpce  { fill: var(--white); stroke: var(--vx-blue); stroke-width: 2; stroke-dasharray: 4 3; }
+.vx-path-red  { fill: none; stroke: var(--vx-red); stroke-width: 3.5; stroke-linecap: round; }
+.vx-path-blue { fill: none; stroke: var(--vx-blue); stroke-width: 3.5; stroke-linecap: round; }
+.vx-arrow-red  { fill: var(--vx-red); }
+.vx-arrow-blue { fill: var(--vx-blue); }
+.vx-hop-red  circle { fill: var(--vx-red); }
+.vx-hop-blue circle { fill: var(--vx-blue); }
+.vx-hop-red text, .vx-hop-blue text { fill: var(--white); font: 700 11px var(--font-sans); text-anchor: middle; }
+.vx-op-red  { fill: var(--vx-red);  font: 700 12px var(--font-sans); }
+.vx-op-blue { fill: var(--vx-blue); font: 700 12px var(--font-sans); }
+.vx-price { fill: var(--vx-text); font: 500 11px var(--font-mono); }
+
+/* Hop number chip used in tables and legends, matching the diagram */
+.hop { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+       border-radius: 999px; font-size: 0.6875rem; font-weight: 700; color: var(--white); }
+.hop--red { background: var(--vx-red); }
+.hop--blue { background: var(--vx-blue); }
+
+/* ---- Per-GB price stack and cost bars (pure CSS) ---- */
+.vx-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.vx-legend-card { background: var(--white); border: 1px solid var(--zinc-200); border-radius: var(--radius-md); padding: 12px 14px; font-size: 0.875rem; }
+.vx-legend-card h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 6px; }
+.vx-legend-card.is-current h3 { color: var(--vx-red); }
+.vx-legend-card.is-proposed h3 { color: var(--vx-blue); }
+.vx-legend-card .total { font-family: var(--font-mono); font-weight: 700; margin-top: 6px; }
+
+.bar-row { display: grid; grid-template-columns: 210px 1fr 96px; gap: 10px; align-items: center; margin: 6px 0; font-size: 0.8125rem; }
+.bar-row .bar-label { overflow-wrap: anywhere; }
+.bar-row .bar-value { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.bar-track { position: relative; height: 18px; background: var(--zinc-100); border-radius: 4px; overflow: hidden; display: flex; }
+.bar-seg { height: 100%; min-width: 2px; }
+.seg-rdt  { background: var(--red-500); }
+.seg-nat  { background: var(--orange-500); }
+.seg-xaz  { background: repeating-linear-gradient(45deg, var(--amber-500) 0 4px, var(--amber-50) 4px 8px); }
+.seg-epgb { background: var(--blue-500); }
+.seg-ephr { background: var(--purple-500); }
+.bar-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--zinc-900); }
+.bar-key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.75rem; color: var(--zinc-500); margin: 8px 0 4px; }
+.bar-key span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--k); }
+
+/* Callout for the headline verdict */
+.callout { border: 1px solid var(--zinc-200); border-left: 4px solid var(--green-500); background: var(--white);
+           border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 20px; }
+.callout.is-warn { border-left-color: var(--amber-500); }
+.callout strong { color: var(--zinc-900); }
+
+/* Numbers and dates never break mid-value (the shared table wraps anywhere for long ARNs) */
+.data-table td.num, .data-table td.nowrap { white-space: nowrap; overflow-wrap: normal; }
+
+/* Break-even chart */
+.vx-chart .leader { stroke: var(--zinc-500); stroke-width: 1; }
+.vx-chart .axis { stroke: var(--zinc-400); stroke-width: 1; }
+.vx-chart .grid { stroke: var(--zinc-200); stroke-width: 1; }
+.vx-chart .tick { fill: var(--zinc-500); font: 500 11px var(--font-sans); }
+.vx-chart .l-cur  { fill: none; stroke: var(--vx-red);  stroke-width: 2.5; }
+.vx-chart .l-cur2 { fill: none; stroke: var(--vx-red);  stroke-width: 2; stroke-dasharray: 6 4; }
+.vx-chart .l-prop { fill: none; stroke: var(--vx-blue); stroke-width: 2.5; }
+.vx-chart .be   { stroke: var(--zinc-900); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.vx-chart .dot  { fill: var(--green-600); stroke: var(--white); stroke-width: 1.5; }
+.vx-chart .zone { fill: var(--green-50); }

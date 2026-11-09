@@ -65,6 +65,8 @@ All calls run in `us-east-1` from the payer-level session (`cross-account-role`:
 
    Always include the `RECORD_TYPE = Usage` clause. Without it, credits and refunds come back as negative-cost rows with `REGION = NoRegion` and distort per-region unit prices. Use the exact `OPERATION` values `PublicIP-In` / `PublicIP-Out`; the same usage types also carry `LoadBalancing-PublicIP-*` and `LoadBalancing-NLB-PublicIP-*`, which are load balancer traffic, not NAT traffic.
 
+   For the report's "How to read your bill" table, also run this call once more for the diagram region only (the region with the highest NAT data processing cost), filtered to that region's `NatGateway-Bytes`, `DataTransfer-Regional-Bytes` and `VpcEndpoint-*` usage types, with `--group-by Type=DIMENSION,Key=USAGE_TYPE Type=DIMENSION,Key=OPERATION`. That splits `PublicIP-Out` from `PublicIP-In` and `InterZone-Out` from `InterZone-In`, and returns the real operation names for the endpoint lines. Cost Explorer allows at most two group-by keys, which is why this is a separate call.
+
    Run the same call with `OPERATION` = `InterZone-In`,`InterZone-Out` to derive the cross-AZ unit price, and once filtered to the resolved `VpcEndpoint-*` usage types grouped by `REGION` + `USAGE_TYPE` to derive endpoint unit prices where the customer already runs endpoints (see `savings-model.md`).
 
 4. Resource-level attribution (preferred, optional). Cost Explorer resource-level data must be enabled on the payer for `EC2 - Other`, and covers only the **last 14 days**:

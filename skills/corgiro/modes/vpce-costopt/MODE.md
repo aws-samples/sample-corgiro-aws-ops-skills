@@ -34,7 +34,7 @@ State the defaults and ask: "Want to adjust any of these, or go with defaults?"
 
 ## Workflow
 
-Execute steps sequentially. Read [references/traffic-attribution.md](references/traffic-attribution.md) before Step 2 and [references/savings-model.md](references/savings-model.md) before Step 5.
+Execute steps sequentially. Read [references/traffic-attribution.md](references/traffic-attribution.md) before Step 2 , [references/savings-model.md](references/savings-model.md) before Step 5, and [references/report-visuals.md](references/report-visuals.md) before Step 7.
 
 ### Step 1: Prerequisite check
 
@@ -98,15 +98,18 @@ Lower the tier by one step (never below Low) when `attribution = proportional`, 
 
 ### Step 7: Generate report
 
-Render per [`../../references/report-format.md`](../../references/report-format.md). Write `VPCE-CostOpt-<DATE>.md` and/or `.html` per `output_format`, then `open` the HTML.
+Render per [`../../references/report-format.md`](../../references/report-format.md), plus the visuals in [references/report-visuals.md](references/report-visuals.md): read it before writing the HTML. It injects `assets/vpce-costopt-visuals.css` and the `assets/vpce-costopt-flow.svg` diagram the same way the shared CSS and logo are injected. Write `VPCE-CostOpt-<DATE>.md` and/or `.html` per `output_format`, then `open` the HTML.
 
-1. **Executive Summary** - KPI cards: NAT Gateways in scope, NAT data processing spend in `month`, total estimated monthly saving, VPCs Critical+High, VPCs missing gateway endpoints
-2. **Opportunities by VPC** - account (`mono`), region, VPC, NAT Gateways, endpoint AZs, in-region public-IP GB, current $, proposed $, saving $ (`num`), break-even GB, endpoints fundable, attribution, tier badge
-3. **Per NAT Gateway detail** - NAT ID, AZ, routed subnets (same-AZ / cross-AZ), attributed GB, cross-AZ fraction
-4. **Gateway endpoint gaps** - VPCs with NAT traffic and no S3/DynamoDB gateway endpoint
-5. **Existing endpoints** - interface/gateway endpoints already present per VPC (so a recommendation never duplicates one)
-6. **Recommendations** - per Critical/High VPC: the observation, then **Hypothesis:** which in-region services likely carry the traffic, the confirmation step (VPC Flow Logs filtered to the NAT Gateway ENI, destination prefixes matched against the AWS IP ranges for the region), and the action if confirmed (gateway endpoint for S3/DynamoDB first; interface endpoints for the remaining top services)
-7. **Methodology** - APIs used, `month`, attribution method per account/region, every price used and its source, the assumptions in the savings model, and what was **not** covered (destination service, IPv6 egress-only traffic, private NAT Gateways, Transit Gateway centralized-egress designs)
+1. **Executive Summary** - KPI cards per report-visuals.md (NAT Gateways found, NAT data processing spend in `month`, estimated monthly saving, VPCs missing gateway endpoints, accounts covered), then the one-sentence verdict callout
+2. **How the cost works** - the flow diagram (red current path, blue proposed path, numbered hops labelled with their bill operation and this run's per-GB price) and the per-GB legend
+3. **How to read your bill (CUR)** - the run's real bill lines for the diagram region, each mapped to a hop number
+4. **Current vs proposed** - per NAT Gateway cost bars on one shared scale, and the break-even chart
+5. **Opportunities by VPC** - account (`mono`), region, VPC, NAT Gateways, endpoint AZs, in-region public-IP GB, current $, proposed $, saving $ (`num`), break-even GB, endpoints fundable, attribution, tier badge
+6. **Per NAT Gateway detail** - NAT ID, AZ, routed subnets (same-AZ / cross-AZ), attributed GB, cross-AZ fraction
+7. **Gateway endpoint gaps** - VPCs with NAT traffic and no S3/DynamoDB gateway endpoint
+8. **Existing endpoints** - interface/gateway endpoints already present per VPC (so a recommendation never duplicates one)
+9. **Recommendations** - per Critical/High VPC: the observation, then **Hypothesis:** which in-region services likely carry the traffic, the confirmation step (VPC Flow Logs filtered to the NAT Gateway ENI, destination prefixes matched against the AWS IP ranges for the region), and the action if confirmed (gateway endpoint for S3/DynamoDB first; interface endpoints for the remaining top services)
+10. **Methodology** - APIs used, `month`, attribution method per account/region, every price used and its source, the assumptions in the savings model, and what was **not** covered (destination service, IPv6 egress-only traffic, private NAT Gateways, Transit Gateway centralized-egress designs)
 
 ## Safety
 

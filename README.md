@@ -22,7 +22,7 @@ Each sweep finds:
 - **ElastiCache end-of-support** - Redis OSS engine version risk, upgrade targets, Extended Support cost exposure
 - **Security posture** - org-wide A-F scorecard across threat detection, identity, data protection, logging, network, and compliance
 - **EC2 compute hygiene** - Assess EC2 fleet health across accounts in the organization. Evaluates instance generation, rightsizing
-- **VPC endpoint savings** - NAT Gateway traffic to in-region AWS services that could move to VPC endpoints, with estimated monthly saving per VPC
+- **VPC endpoint savings** — NAT Gateway traffic to in-region AWS services that could move to VPC endpoints, with estimated monthly saving per VPC
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
 
@@ -71,7 +71,7 @@ Check which accounts are reachable:
 | [`/corgiro security-posture-review`](skills/corgiro/modes/security-posture-review/) | Org-wide security posture scorecard (A-F) across six domains — threat detection (GuardDuty, Security Hub), identity and access (light summary), data protection (EBS/RDS encryption), logging and monitoring (CloudTrail, AWS Config), network security (internet-open security groups, public RDS/S3), and compliance — with a prioritized remediation roadmap. Defers deep IAM analysis to iam-security-review. |
 | [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |
 | [`/corgiro ri-sp-coverage-analysis`](skills/corgiro/modes/ri-sp-coverage-analysis/) | Reserved Instance and Savings Plans coverage analysis — spend decomposition, coverage, utilization, purchase recommendations, and expiring commitments across the org (payer-scoped).                                             |
-| [`/corgiro vpce-costopt`](skills/corgiro/modes/vpce-costopt/)                   | NAT Gateway to VPC endpoint cost optimization - attributes in-region public-IP transfer to each NAT Gateway, estimates monthly saving per VPC from moving it onto interface endpoints (net of endpoint hourly cost), and flags VPCs missing free S3/DynamoDB gateway endpoints. |
+| [`/corgiro vpce-costopt`](skills/corgiro/modes/vpce-costopt/)                   | NAT Gateway to VPC endpoint cost optimization — attributes in-region public-IP transfer to each NAT Gateway, estimates monthly saving per VPC from moving it onto interface endpoints (net of endpoint hourly cost), and flags VPCs missing free S3/DynamoDB gateway endpoints. |
 | [`/corgiro eks-ingress-migration`](skills/corgiro/modes/eks-ingress-migration/)     | Org-wide EKS ingress migration triage — discovers clusters across accounts/regions, detects EKS Auto Mode, and classifies each cluster's ingress exposure from AWS load balancer tags (NGINX front vs AWS Load Balancer Controller ALB vs Auto Mode managed) to prioritize migration off NGINX and point each at the right path (Gateway API + lbc-migrate toolkit, ALB/LBC Ingress, or AWS Transform/ATX).                       |
 | [`/corgiro ask <question>`](skills/corgiro/modes/ask/)                          | Ad-hoc org-wide questions — plans read-only AWS CLI calls from your natural-language question, shows the plan for approval (accounts, regions, call budget), fans out across all reachable accounts, and answers inline from live API data. Save a good run as a permanent mode via `mode-builder`. |
 | [`/corgiro mode-builder`](skills/corgiro/modes/mode-builder/)                   | Interactive workflow to create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing.                                                                                                  |
@@ -116,9 +116,7 @@ skills/
     │   ├── corgiro-readonly-role.yaml    ← CloudFormation template (Option B)
     │   ├── report-theme.css              ← shared report styling
     │   ├── corgiro-logo.png              ← logo (96×96 source)
-    │   ├── corgiro-logo.datauri          ← logo as data URI (inlined into reports)
-    │   ├── vpce-costopt-visuals.css      ← vpce-costopt diagram/bar styles + dark mode
-    │   └── vpce-costopt-flow.svg         ← vpce-costopt NAT vs endpoint flow diagram
+    │   └── corgiro-logo.datauri          ← logo as data URI (inlined into reports)
     └── modes/
         ├── setup-corgiro/
         │   ├── MODE.md                   ← router: choose Option A or B
@@ -140,7 +138,7 @@ skills/
         │   └── references/
         │       ├── traffic-attribution.md
         │       ├── savings-model.md
-        │       └── report-visuals.md
+        │       └── report-sections.md
         ├── mode-builder/
         │   ├── MODE.md
         │   └── references/

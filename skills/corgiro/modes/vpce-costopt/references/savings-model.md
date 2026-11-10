@@ -2,7 +2,7 @@
 
 How `vpce-costopt` turns attributed NAT Gateway traffic into a current vs proposed monthly cost per VPC.
 
-> Never use model knowledge for prices. Every unit price comes from the customer's own bill (Step 2) or from the AWS Price List API queried during the run. If a price cannot be resolved, STOP the estimate for that region and report the gap - do not substitute a remembered value.
+> Never use model knowledge for prices. Every unit price comes from the customer's own bill (Step 2) or from the AWS Price List API queried during the run. If a price cannot be resolved, STOP the estimate for that region and report the gap — do not substitute a remembered value.
 
 ## Architectures compared
 
@@ -37,7 +37,7 @@ aws pricing get-products --service-code AWSDataTransfer --region us-east-1 \
 
 For endpoints, keep the product whose `usagetype` ends in `-VpcEndpoint-Hours` (hourly) and the `-VpcEndpoint-Bytes` price dimension with `beginRange = 0` (first tier). Skip `GWLBE`, `Service` and `Tunnel` usage types. `PriceList` entries are JSON strings: parse each one, then read `terms.OnDemand.*.priceDimensions.*.pricePerUnit.USD`. Take `usagetype` values from the region's Step 2 `get-dimension-values` results, never by guessing a prefix.
 
-Bill-derived prices are the customer's effective unblended rates. A rate derived from less than 1 GB of usage is noisy - use the Price List rate in that case. Record the source of every price in `aggregated.json` and the report Methodology.
+Bill-derived prices are the customer's effective unblended rates. A rate derived from less than 1 GB of usage is noisy — use the Price List rate in that case. Record the source of every price in `aggregated.json` and the report Methodology.
 
 ## Per NAT Gateway
 
@@ -68,7 +68,7 @@ fundable     = floor((current - sum(variable_n)) / (A x p_ep_hr x H))   # endpoi
 
 `fundable` matters because the real design usually needs one interface endpoint per AWS service reached (ECR needs `ecr.api` + `ecr.dkr`, plus S3 for layers). If `fundable` is below the number of services the traffic likely reaches, the opportunity shrinks.
 
-**Gateway endpoint gap.** When a VPC has NAT traffic and no S3 (or DynamoDB) gateway endpoint, report the per-GB saving `p_rdt + p_nat + 2 x f x p_xaz` with zero fixed cost. The mode cannot tell what share of `G` is S3 or DynamoDB - say so, and make "confirm the S3/DynamoDB share in flow logs" the first recommendation step.
+**Gateway endpoint gap.** When a VPC has NAT traffic and no S3 (or DynamoDB) gateway endpoint, report the per-GB saving `p_rdt + p_nat + 2 x f x p_xaz` with zero fixed cost. The mode cannot tell what share of `G` is S3 or DynamoDB — say so, and make "confirm the S3/DynamoDB share in flow logs" the first recommendation step.
 
 ## Reference derivation
 
@@ -80,12 +80,12 @@ proposed = X + 3 x p_ep_hr x H
 saving   = 5.833X - 3 x p_ep_hr x H
 ```
 
-The model uses 730 hours per month, matching AWS pricing pages. Use the derivation only to sanity-check output: if a region's resolved prices match those ratios, the per-VPC result should match `5.833X - 3 x p_ep_hr x H`.
+The model uses 730 hours per month, matching AWS pricing pages. Use the derivation only to sanity-check output: if a region's resolved prices match those ratios, the per-VPC result should match `5.833X — 3 x p_ep_hr x H`.
 
 ## Assumptions to state in the report
 
 - In-region public-IP transfer through a NAT Gateway is traffic to AWS service public endpoints that support VPC endpoints. Some in-region public IPs belong to other customers' resources (for example another account's Elastic IP) and cannot move to an endpoint.
 - Traffic is evenly spread across routed subnets (drives `f_n`).
-- NAT Gateway hourly charges are unchanged - the NAT Gateway still serves internet-bound traffic.
+- NAT Gateway hourly charges are unchanged — the NAT Gateway still serves internet-bound traffic.
 - Interface endpoint data processing uses the first pricing tier.
 - Resource-level attribution covers the last 14 days, scaled to a month; proportional attribution is an upper bound.

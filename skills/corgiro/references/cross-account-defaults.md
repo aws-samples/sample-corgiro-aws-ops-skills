@@ -22,6 +22,7 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `rosterFreshnessHours` | `24` | Re-fetch roster if older than this |
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
+| `runDirRoot` | `~/Workspaces/corgiro-runs` | Parent directory for per-run output folders (`<runDirRoot>/<run_id>/`). Override for one run with `--run-dir <path>`. See [report-format.md](report-format.md#naming-conventions-shared-across-modes). |
 
 > **`sessionDurationSeconds` cannot exceed 3600.** Corgiro always assumes `CorgiroReadOnlyRole` *from a role session* — Identity Center credentials are an `AWSReservedSSO_*` role session, and an external-IdP login is an `AssumeRoleWithSAML` role session. Both are **role chaining**, which STS caps at 1 hour regardless of the requested duration. Values above 3600 are clamped with a warning, not a failure. The StackSet template's `MaxSessionDurationSeconds` accepts up to 43200 because the role may also be assumed by a non-chained principal outside Corgiro; that headroom is unreachable through either Corgiro path.
 

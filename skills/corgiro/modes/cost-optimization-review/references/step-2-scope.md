@@ -179,11 +179,14 @@ discovery call is needed. Step 2 records the parameter value and nothing more.
 ## Persist
 
 **Create the run directory now** (not earlier). Name:
-`cost-optimization-review-<ce_source_account>-<YYYYMMDD>-<HHMMSS>`. The CE
-source account has just passed the verification probe, so the name is
-settled and does not change for the rest of the run. Default parent
-directory is `~/Workspaces/corgiro-runs/` (or `--run-dir` if the operator
-set one). `chmod 700` the directory before writing to it.
+`cost-optimization-review-<YYYYMMDD>-<HHMMSS>`. The CE source account has
+just passed the verification probe, so the run is committed and the name is
+settled; it does not change for the rest of the run. The account ID goes in
+`scope.json` and in the report filenames, not in the directory name. Parent
+directory is `runDirRoot` from
+[`../../../references/cross-account-defaults.md`](../../../references/cross-account-defaults.md)
+(or `--run-dir` if the operator set one). `chmod 700` the directory before
+writing to it.
 
 Write `scope.json`:
 

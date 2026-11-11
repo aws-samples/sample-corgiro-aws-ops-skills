@@ -135,6 +135,40 @@ Use these classes so a color means the same thing in every report:
 
 - **Table:** `<table class="data-table">` with a `<thead>`; right-align **numeric columns in data tables** (i.e. tables with repeating rows of the same shape) with `<td class="num">`; render account IDs / ARNs with `<td class="mono">`. **Do not use `num` on key-value info tables** (two-column `<th>label</th><td>value</td>` tables used for run metadata, where the value is narrative — "1 of 5 in scope — ...", "chargeable (unverified)") — mixed alignment there reads as a layout bug. Those value cells should be left-aligned; apply `mono` if the value is an account ID or ARN, otherwise no class.
 - **Badge:** `<span class="badge badge--red">Critical</span>`.
+- **Recommendation card (required for any "what to do" item):** a recommendation rendered as a heading plus prose disappears — `.section h4` is 15px while body copy is 16px, so the heading is *smaller* than the text under it and a reader scanning the section sees an undifferentiated wall. Use `.rec` instead, one card per action:
+
+  ```html
+  <div class="rec rec--quantified">          <!-- or rec--scoped / rec--done / rec--critical -->
+    <div class="rec-head">
+      <div class="rec-headline">
+        <div class="rec-title">Delete the collections if the knowledge bases are not needed</div>
+        <div class="rec-badges">
+          <span class="badge badge--green">QUANTIFIED</span>
+          <span class="badge badge--zinc">elimination</span>
+        </div>
+      </div>
+      <div class="rec-figure">
+        <span class="amount">$176.64</span>
+        <span class="caption">realizable / month</span>
+      </div>
+    </div>
+    <div class="rec-body">
+      <div class="rec-label">Evidence</div>
+      <ul class="rec-evidence"> … call + finding per item … </ul>
+      <div class="rec-warn">                  <!-- only when a caveat changes whether it works -->
+        <div class="rec-label">Before you act</div>
+        <p>Deleting one of the two saves nothing — the floor is a shared pool.</p>
+      </div>
+      <div class="rec-action">
+        <div class="rec-label">Recommendation</div>
+        <p>…the action, opening with the verification step when a premise is unverified…</p>
+      </div>
+    </div>
+  </div>
+  ```
+
+  Rules: the verdict badge and the saving figure go in `.rec-head`, never buried in prose — they are what a reader scans. Pick the accent by verdict (`rec--quantified` green, `rec--scoped` amber, `rec--done` grey). Put the saving in `.rec-figure .amount`; for `ALREADY DONE` use `$0` or a dash with caption "no gap found". The action text always lands in `.rec-action` so "what do I do" is findable without reading the evidence.
+- **Cost-line grouping:** wrap each group of cards in `<div class="cost-line"><h3>…</h3> … </div>` to get the separating rule between groups.
 - **Expandable text** (long event descriptions): `<details><summary>…</summary><p>…</p></details>`. The summary and body are a prime injection sink -- HTML-entity-escape the description before inserting it (see Rule 8).
 - **Methodology (required):** every report ends with a `<section class="section">` titled "Methodology" stating tools/APIs used, scope (accounts, regions, date range), and what was **not** covered.
 

@@ -315,7 +315,7 @@ sections:
 ## Output
 
 ```
-./<run_id>/
+<runDirRoot>/<run_id>/
 ├── scope.json                    CE source account, rate basis, accounts, regions, params
 ├── overview-profile.json         always — the overview phase output
 ├── spend-profile.json            drill phase only — ranked cost lines within chosen service
@@ -323,26 +323,38 @@ sections:
 ├── levers.json                   step 5, lever records with citations
 ├── per-account/<account_id>/<region>/<evidence>.json
 ├── aggregated.json               step 6, levers with verdicts and evidence
-├── Cost-Optimization-Review-Overview-<DATE>.{md,html}   always — the overview report
-└── Cost-Optimization-Review-<service-slug>-<DATE>.{md,html}   drill phase only
+├── Cost-Optimization-Review-<ce_source_account>-Overview-<DATE>.{md,html}   always — the overview report
+└── Cost-Optimization-Review-<ce_source_account>-<service-slug>-<DATE>.{md,html}   drill phase only
 ```
 
 `run_id` naming:
 
-- `cost-optimization-review-<ce_source_account>-<YYYYMMDD>-<HHMMSS>`
+- `cost-optimization-review-<YYYYMMDD>-<HHMMSS>`, exactly the shared format in
+  [`../../references/report-format.md`](../../references/report-format.md).
 - The run directory is created at **Step 2**, immediately after the operator's
   named CE source account passes the verification probe. The name does not
   change for the rest of the run regardless of whether the operator drills
   into a service, stays in overview-only mode, or cancels before the drill
   gate.
-- `<ce_source_account>` is the 12-digit AWS account ID. Service identity
-  is carried in the report filenames (one of the drill `.html`/`.md` pairs
-  inside the directory), not in the directory name — this keeps the run_id
-  settable at Step 2, before the service is chosen.
+- Neither the CE source account nor the chosen service appears in the
+  directory name. **Both appear in the report filenames** instead, which is
+  where this mode already encodes variable identity, and the account is also
+  recorded in `scope.json` and in every report header. That keeps the run_id
+  settable at Step 2, before the service is chosen, and keeps
+  `corgiro-<operator>-<run_id>` within the 64-character `RoleSessionName`
+  limit — a run_id carrying a 12-digit account ID overflows it by 4
+  characters, which no amount of truncating the operator alias fixes.
 
-Default parent directory is `~/Workspaces/corgiro-runs/`. Operator may
-override with `--run-dir <path>`. Secure the run directory after writing:
-`chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*`.
+Parent directory is `runDirRoot` from
+[`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)
+(default `~/Workspaces/corgiro-runs`), overridable for one run with
+`--run-dir <path>`. Resolve it to an absolute path, expanding `~`, and create
+it if missing — never write the run directory to a bare relative `./` path,
+because the output carries account IDs, resource configuration and cost
+detail, and the `chmod 700` below does not help if the folder landed in a git
+repo or a synced directory that happened to be the working directory. Then
+secure it per [`../../references/report-format.md`](../../references/report-format.md):
+`chmod 700` the directory and `chmod 600` its files.
 
 ## Error Handling
 

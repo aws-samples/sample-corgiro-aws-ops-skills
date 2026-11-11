@@ -112,6 +112,37 @@ body {
   margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--zinc-200);
 }
 
+/* ---- Prose, lists, and subheads inside a section ---- */
+/* The universal reset above (* { margin: 0; padding: 0 }) zeroes defaults
+   for p / ul / ol / li / h3 / h4. Add back readable rhythm scoped to
+   .section so these only affect report body prose, not header/KPI/table
+   internals. */
+.section p,
+.section li { line-height: 1.6; }
+.section p { margin-bottom: 0.75rem; }
+.section p:last-child { margin-bottom: 0; }
+.section ul,
+.section ol { padding-left: 1.5rem; margin: 0 0 0.75rem; }
+.section li { margin-bottom: 0.25rem; }
+.section li:last-child { margin-bottom: 0; }
+
+.section h3 {
+  font-size: 1rem; font-weight: 600; color: var(--zinc-900);                   /* 16px */
+  margin: 1.5rem 0 0.5rem;
+}
+.section h4 {
+  font-size: 0.9375rem; font-weight: 600; color: var(--zinc-800);              /* 15px */
+  margin: 1.25rem 0 0.4rem;
+}
+
+/* ---- Cost-line subsection divider (opt-in via class) ---- */
+/* Used by recommendations that group findings per cost line. Each cost
+   line sits in its own <div class="cost-line"> and gets a visual break
+   between siblings. First instance in its parent has no top divider. */
+.cost-line { padding: 1rem 0 0.5rem; margin-top: 1.5rem; border-top: 2px solid var(--zinc-200); }
+.cost-line:first-of-type { border-top: 0; margin-top: 0; padding-top: 0.25rem; }
+.cost-line > h3 { margin-top: 0; }
+
 /* ---- Tables ---- */
 .data-table {
   width: 100%; border-collapse: collapse; background: var(--white);

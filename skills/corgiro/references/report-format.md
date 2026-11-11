@@ -38,6 +38,10 @@ single-file HTML** — no scripts to run, no build step, no network calls.
 
    If the count is not 1, the logo is broken — re-run the injection. Only then proceed to Rule 6 (open).
 
+10. **Author the HTML and Markdown directly with the file-write tool. Do not generate them via shell heredoc.** The agent writes the `<Report-Name>-<DATE>.html` and `<Report-Name>-<DATE>.md` files by emitting their contents through the file-write tool, with every tag visible in the tool call for review. This is the skill's "agent-authored" property from Rule 1 made operational. **Python is used only for the Rule 9 asset splice** (reading `report-theme.css` and `corgiro-logo.datauri` and replacing the two placeholders in the already-written HTML). No part of the report body — KPI cards, section bodies, tables, prose — may be emitted from inside a shell heredoc.
+
+    Why this rule exists: `python3 << HEREDOC` (unquoted terminator) hands the body to bash first, and bash eats every `${expression}` as a parameter expansion before Python sees it. A Python f-string like `${total:,.2f}` becomes empty under that chain, and the resulting report silently loses every dollar figure it should have shown. There is no linter in the agent pipeline that catches this. Writing the HTML through the file-write tool makes the class impossible: no shell, no heredoc, no bash expansion. Loops over data (ranking rows, theme items, etc.) are composed in agent code before the write call and emitted as the finished HTML string.
+
 ## Naming conventions (shared across modes)
 
 - `run_id` = `<mode>-<YYYYMMDD>-<HHMMSS>`, where `<mode>` is the mode's directory name — e.g. `rds-eol-analysis-20260615-080500`.
@@ -129,7 +133,7 @@ Use these classes so a color means the same thing in every report:
 
 ## Component cheat-sheet
 
-- **Table:** `<table class="data-table">` with a `<thead>`; right-align numbers with `<td class="num">`; render account IDs / ARNs with `<td class="mono">`.
+- **Table:** `<table class="data-table">` with a `<thead>`; right-align **numeric columns in data tables** (i.e. tables with repeating rows of the same shape) with `<td class="num">`; render account IDs / ARNs with `<td class="mono">`. **Do not use `num` on key-value info tables** (two-column `<th>label</th><td>value</td>` tables used for run metadata, where the value is narrative — "1 of 5 in scope — ...", "chargeable (unverified)") — mixed alignment there reads as a layout bug. Those value cells should be left-aligned; apply `mono` if the value is an account ID or ARN, otherwise no class.
 - **Badge:** `<span class="badge badge--red">Critical</span>`.
 - **Expandable text** (long event descriptions): `<details><summary>…</summary><p>…</p></details>`. The summary and body are a prime injection sink -- HTML-entity-escape the description before inserting it (see Rule 8).
 - **Methodology (required):** every report ends with a `<section class="section">` titled "Methodology" stating tools/APIs used, scope (accounts, regions, date range), and what was **not** covered.

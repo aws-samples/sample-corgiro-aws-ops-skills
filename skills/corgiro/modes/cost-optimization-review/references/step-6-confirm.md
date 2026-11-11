@@ -11,9 +11,20 @@ concurrently (hard ceiling 10), exponential backoff on throttling (base 1s, cap
 30s). Persist each raw response under
 `per-account/<account_id>/<region>/<evidence>.json` before aggregating.
 
-Scope the fan-out to the accounts and regions the cost line actually appeared in,
-from Step 3's attribution. A lever for a cost line seen only in `us-east-1` in two
-accounts does not need a 14-account sweep.
+Scope the fan-out to **the accounts and regions each cost line actually
+appeared in, from Step 3 Call B2** (per-line `USAGE_TYPE × LINKED_ACCOUNT`
+breakdown) and the `REGION` attribution. Each cost line's `accounts[]` field
+in `spend-profile.json` names the authoritative fan-out set for that line;
+an account with no spend on the line has no resource to inspect and is
+skipped.
+
+This is **not** the same as `accounts_in_scope` in `scope.json`.
+`accounts_in_scope` names the full drill fan-out set the operator permitted
+(typically every reachable roster account); Step 6 fans out into the subset
+that actually carries the chosen service's spend, which the CE source's
+visibility and Call B2 together determine. A lever for a cost line present
+in one account does not need a 5-account sweep, even though 5 accounts are
+technically in scope.
 
 ## The composition rule
 

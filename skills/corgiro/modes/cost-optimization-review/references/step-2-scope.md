@@ -1,27 +1,30 @@
 # Step 2: Resolve Scope and the CE Source Account
 
-Two independent things: which accounts the evidence comes from, and which single
-source Cost Explorer is queried from.
+Two independent things: which accounts the drill-phase evidence may come from,
+and which single account Cost Explorer is queried from.
 
 Scope (`accounts`, `account_filter`) is read from the roster. The CE source is
-decided by an empirical cascade, not by asking: previous iterations of this
-mode asked the operator to name an account, then auto-detected one when they
-could not, and both failures were avoidable. The cascade is defined in
-[`access-pattern.md`](access-pattern.md); this file is where it runs.
+**named by the operator and verified with one probe** — detection has been
+retired. The named account's own visibility decides whether the analysis is
+org-wide (via a Billing Conductor primary) or single-account (any member).
+The procedure in [`access-pattern.md`](access-pattern.md) defines what the
+named account may be and what the verification probe checks; this file is
+where it runs.
 
 ## Terminology
 
-- **CE source** — the credential/account pair Cost Explorer is queried from.
-  May be a payer, a Billing Conductor primary with a billing-group view, or
-  each member account in turn.
-- **`rate_basis`** — the rate the CE source returns. Chargeable at tiers 1 and
-  3, proforma at tier 2. Derived, never asked.
-- **`accounts_visible`** — accounts Cost Explorer actually returned cost for,
-  from the chosen CE source. Measured per tier in Step 3, then printed in the
-  report header. "Visible" is honest about tier 3 partials (see
-  [`access-pattern.md`](access-pattern.md) partial tier 3).
+- **CE source account** — the one account `ce:*` is queried from for this run.
+  A Billing Conductor primary, or a single member account. The organization
+  management account is **not** an acceptable value — see
+  [`access-pattern.md`](access-pattern.md) Scope boundary.
+- **`rate_basis`** — the rate the CE source returns. `proforma` when the named
+  account is a Billing Conductor primary with a `BILLING_GROUP` view,
+  `chargeable` otherwise. Derived from `billing:ListBillingViews` on the named
+  account, never asked.
+- **`accounts_visible`** — the distinct `LINKED_ACCOUNT` values the named CE
+  source returns cost for. Measured in Step 3 and printed in the report header.
 
-## Resolve `accounts` first: it decides everything else
+## Resolve `accounts` first: it decides the drill fan-out
 
 Read `~/.corgiro/state/roster.json`, then resolve the analysis set:
 
@@ -40,107 +43,132 @@ Read `~/.corgiro/state/roster.json`, then resolve the analysis set:
 
 Apply `account_filter` from config on top of either set.
 
+`accounts_in_scope` is the **drill-phase evidence set**: the accounts Step 6
+may fan out into when confirming lever applicability. It is independent of
+which account CE is queried from. A run may read cost org-wide from a Billing
+Conductor primary while the drill still fans out into just the accounts whose
+spend made the top-N in the chosen service.
+
 Credential dispatch stays in
 [`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
 Do not restate it.
 
-## Resolve the CE source by cascade
+## Resolve the CE source: ask the operator, then verify
 
-The procedure in [`access-pattern.md`](access-pattern.md) defines the tiers and
-their succeed/fail semantics. Execute it in order, recording the attempt and
-its result. The verification query at each tier is the same probe:
+Ask the operator which account to read Cost Explorer from. One question, one
+answer, no detection:
+
+```
+Which account should I read Cost Explorer from?
+
+  For org-wide cost analysis, name a Billing Conductor primary account
+  that has CorgiroReadOnlyRole deployed. Its proforma billing-group view
+  covers every member in the group.
+
+  For a single account's cost, name that account.
+
+  The organization management account is out of scope for this mode and
+  will not be accepted — see access-pattern.md Scope boundary.
+
+Account:
+```
+
+Accept the answer as:
+
+- a 12-digit account ID present in the roster
+- a roster name, matched case-insensitively against roster `name` values. One
+  unambiguous match resolves silently; zero or several is a question listing
+  the candidates. Never guess.
+
+Reject an answer that resolves to a roster entry with `via: "management"` or
+whose `name` indicates the management account — the mode does not query it.
+Re-ask.
+
+### Assume the role
+
+`sts:AssumeRole` into `CorgiroReadOnlyRole` in the named account per
+[`../../../references/credential-resolution.md`](../../../references/credential-resolution.md).
+
+```
+AssumeRole succeeds       proceed to the verification probe below
+AssumeRole AccessDenied   the role is not deployed in the named account, or
+                          the external-id / trust condition doesn't match.
+                          Re-ask for a different account.
+AssumeRole other error    report the error, re-ask.
+```
+
+### Verification probe
+
+One `ce:GetCostAndUsage` call to confirm the named account can answer the
+metric the mode needs **before** any real work starts:
 
 ```bash
 aws ce get-cost-and-usage \
   --time-period Start=<last_month_start>,End=<this_month_start> \
   --granularity MONTHLY --metrics AmortizedCost \
-  [--billing-view-arn <arn>] \
   --region us-east-1 --output json
 ```
 
-**Tier 1 — payer.** Resolve `management_account_id` from `coverage.json` (set by
-`account-coverage`; a roster entry with `via: "management"` identifies it).
-Attempt `sts:AssumeRole` into `CorgiroReadOnlyRole` there. On `AccessDenied`,
-the role is absent (the normal case for a default setup, because
-service-managed StackSets cannot target the management account). Record
-`tier1_status: role_absent` and move on.
+No groupings, no filters. The point is to test the pair (credential, metric)
+for this account, nothing more.
 
-If AssumeRole succeeds, run the probe. On `DataUnavailableException`, record
-`tier1_status: data_unavailable` and move on. On success, record
-`tier1_status: pass`, set `rate_basis: chargeable`, `billing_view_arn: null`,
-and `ce_source_account: <management_account_id>`.
+```
+success                              proceed to rate-basis derivation below
+DataUnavailableException             hard stop with the DataUnavailable message
+                                     from access-pattern.md. The named account
+                                     may not be able to produce amortized
+                                     cost; operator re-runs with a different
+                                     account or --metric UnblendedCost override.
+AccessDeniedException                hard stop with the AccessDenied message.
+                                     CE is not enabled for the account, or an
+                                     SCP is denying ce:* above the role.
+                                     Operator fixes the account or names
+                                     another.
+other error (throttling, 5xx)        report and re-ask the operator; do not
+                                     retry automatically — this is Step 2,
+                                     the probe is cheap, and silently retrying
+                                     hides a failing account from the operator.
+```
 
-**Tier 2 — Billing Conductor primary.** For each reachable roster account in a
-stable order (roster insertion order is fine), AssumeRole into
-`CorgiroReadOnlyRole` and call:
+The hard-stop messages are in [`access-pattern.md`](access-pattern.md) Hard
+stop. Their exact wording is the authority — do not re-derive them here.
+
+### Rate basis
+
+One `billing:ListBillingViews` on the named account under
+`CorgiroReadOnlyRole`:
 
 ```bash
 aws billing list-billing-views --region us-east-1 --output json
 ```
 
-The first account whose response contains a view with
-`billingViewType == "BILLING_GROUP"` is a BC primary. Capture the view's `arn`.
-Record `tier2_status: pass`, `rate_basis: proforma`,
-`billing_view_arn: <arn>`, and `ce_source_account: <that_account_id>`. Run
-the probe with `--billing-view-arn <arn>` to confirm the view is query-able;
-on failure, record it and continue down the list.
+Classify from the returned `billingViews[]`:
 
-If no roster account returns a `BILLING_GROUP` view, record `tier2_status:
-no_billing_group` and move on. This is the normal case for organizations not
-on Billing Conductor.
+```
+any view with billingViewType == "BILLING_GROUP" present
+  -> rate_basis = "proforma"
+  -> billing_view_arn = that view's arn
+  -> pass --billing-view-arn <arn> on every ce:* call in this run
+
+only billingViewType == "PRIMARY" present
+  -> rate_basis = "chargeable"
+  -> billing_view_arn = null
+
+ListBillingViews returns AccessDenied
+  -> rate_basis = "chargeable (unverified)"
+  -> billing_view_arn = null
+  -> this is a note in the report header, not a hard stop; the probe
+     already confirmed ce:GetCostAndUsage works, so CE itself is readable.
+     The caller just cannot enumerate billing views — common when the
+     operator permission set omits billing:*.
+```
 
 > **`billingconductor:*` is not used.** Enumerating billing groups directly
 > requires `billingconductor:ListBillingGroups`, which is denied under the
-> operator permission set and not granted by `ReadOnlyAccess`. `ListBillingViews`
-> works because the caller is asking "which views can I see?" rather than "which
-> groups does this org have?" — a self-describing read, not a payer enumeration.
-
-**Tier 3 — per-account.** Fan out the probe across every reachable roster
-account under `CorgiroReadOnlyRole`. Record per-account results:
-
-```
-tier3_status: pass          every account returned cost data
-tier3_status: partial       some accounts returned DataUnavailableException
-tier3_status: fail          every account returned DataUnavailableException
-```
-
-On `pass`, set `rate_basis: chargeable`, `billing_view_arn: null`,
-`ce_source_account: "per-account"`. On `partial`, the same, plus
-`tier3_partial: { succeeded: [...], failed: [{ accountId, exception }, ...] }`;
-the operator is asked to accept the partial at the Step 3 gate (see
-[`access-pattern.md`](access-pattern.md) partial tier 3).
-
-On `fail`, the cascade is exhausted — proceed to the hard stop.
-
-## Operator override
-
-After the cascade resolves, present the result in a single line and allow one
-override:
-
-```
-CE source: tier 3 per-account (6 of 6 accounts reachable, rate_basis: chargeable)
-Press enter to proceed, or name a different reachable roster account:
-```
-
-The override only changes which account is probed; it does not change the
-tier logic (naming the payer still attempts AssumeRole + AmortizedCost; naming
-a member still queries per-account).
-
-**Do not ask for a billing-view ARN.** Tier 2 produces it from the API; tiers
-1 and 3 do not use one. Previous iterations asked the operator for it under
-`AccessDenied` on `ListBillingViews`, which was a dead-end on direct-payer
-orgs — an operator billed directly has no view ARN to supply. That question is
-gone.
-
-## Hard stop
-
-When the cascade exhausts, print the hard-stop message from
-[`access-pattern.md`](access-pattern.md). Its exact wording is the authority —
-do not re-derive it here. It names two remediations (deploy the role manually
-to the management account, or enable `Linked account discounts` in payer
-preferences) and one override (`--metric UnblendedCost`).
-
-Record `ce_cascade_result: hard_stop` in `scope.json` and exit.
+> operator permission set and not granted by `ReadOnlyAccess`.
+> `ListBillingViews` works because the caller is asking "which views can I
+> see?" rather than "which groups does this org have?" — a self-describing
+> read, not a payer enumeration.
 
 ## Regions are not resolved here
 
@@ -150,25 +178,25 @@ discovery call is needed. Step 2 records the parameter value and nothing more.
 
 ## Persist
 
-Write `scope.json`. `regions_resolved` is left `null` and filled in by Step 3;
-tier-specific fields are set only for the tiers that were attempted:
+**Create the run directory now** (not earlier). Name:
+`cost-optimization-review-<ce_source_account>-<YYYYMMDD>-<HHMMSS>`. The CE
+source account has just passed the verification probe, so the name is
+settled and does not change for the rest of the run. Default parent
+directory is `~/Workspaces/corgiro-runs/` (or `--run-dir` if the operator
+set one). `chmod 700` the directory before writing to it.
+
+Write `scope.json`:
 
 ```json
 {
-  "run_id":            "cost-optimization-review-<service>-20261108-184500",
+  "run_id":            "cost-optimization-review-<ce_source_account>-<YYYYMMDD-HHMMSS>",
   "access_mode":       "cross-account-role",
   "auth_method":       "identity-center",
 
-  "ce_source_tier":    3,
-  "ce_source_account": "per-account",
-  "ce_source_route":   "CorgiroReadOnlyRole, fanned out across reachable roster accounts",
+  "ce_source_account": "123456789012",
+  "ce_source_role":    "CorgiroReadOnlyRole",
   "billing_view_arn":  null,
   "rate_basis":        "chargeable",
-
-  "tier1_status":      "role_absent",
-  "tier2_status":      "no_billing_group",
-  "tier3_status":      "pass",
-  "tier3_partial":     null,
 
   "metric":            "AmortizedCost",
   "metric_override":   false,
@@ -182,9 +210,9 @@ tier-specific fields are set only for the tiers that were attempted:
   "services_resolved": null,
   "service_chosen":    null,
 
-  "top_n":             10,
   "min_service_usd":   50,
-  "min_finding_usd":   25,
+  "coverage_share":    0.95,
+  "noise_floor_pct":   0.001,
 
   "regions":           "auto",
   "regions_resolved":  null,
@@ -195,5 +223,5 @@ tier-specific fields are set only for the tiers that were attempted:
 ```
 
 `service_chosen` stays `null` until the operator picks one at the end of the
-overview phase. `services` (plural, from `--service` if set) is resolved in
-Step 3 against the customer's actual spend.
+overview phase. `services` (plural) is reserved for a future multi-service
+run and is `null` in the current single-service flow.

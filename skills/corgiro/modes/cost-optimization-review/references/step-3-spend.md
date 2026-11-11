@@ -6,21 +6,23 @@ This step runs in two phases that share Step 1 and Step 2 and diverge here:
   Ends at the service-selection gate. Independently useful; can be the whole
   run via `--overview-only`.
 - **Drill** — the operator has picked **one** service. Within that service,
-  break down usage types, derive purchase/record-type mix, and attribute to
-  accounts and regions. Ends at the decode confirmation gate.
+  rank usage types, show the per-line account breakdown, derive purchase and
+  record-type mix, then proceed directly to Step 4. No gate here; the
+  service-selection gate in the overview phase is the only interactive
+  gate in the drill flow.
 
-Credentials, source accounts and the metric rule are defined in
+Credentials, source account and the metric rule are defined in
 [`access-pattern.md`](access-pattern.md). Do not restate them.
 
 ## Metric
 
-`AmortizedCost` by default, at every tier the Step 2 cascade produced. **No
-silent fallback to `UnblendedCost`** — if an amortized query returns
+`AmortizedCost` by default, against the one CE source account Step 2 resolved.
+**No silent fallback to `UnblendedCost`** — if an amortized query returns
 `DataUnavailableException`, Step 2 had already made that a hard stop. If the
 operator passed `--metric UnblendedCost` as an explicit override, use it; the
 report header and Methodology section record the override and its caveat
-(misattributes No Upfront RI recurring charges to On Demand, which makes
-commitment-coverage figures in Call 4 unreliable when coverage is non-zero).
+(misattributes No Upfront RI recurring charges to On Demand, which makes the
+commitment-coverage figures in Call B4 unreliable when coverage is non-zero).
 
 All CE calls in this step accept the same optional `--billing-view-arn` that
 Step 2 derived; pass it when `billing_view_arn` is non-null in `scope.json`.
@@ -54,8 +56,10 @@ service_monthly_avg = sum(AmortizedCost across N months) / N
 Rank descending by `service_monthly_avg`. Apply `min_service_usd` (default
 `50`) as a pre-selection threshold — services below it are marked "below
 threshold" rather than dropped from display, because the operator may still
-pick one. `top_n` applies **within** a chosen service in Phase B and does not
-apply to the overview ranking (every service above the threshold is shown).
+pick one. The drill-phase selection rules (`coverage_share` Pareto cutoff +
+`noise_floor_pct` noise floor) apply **within** a chosen service in Phase B
+and do not apply to the overview ranking (every service above the threshold
+is shown).
 
 ### Call A2 — accounts visible to this source
 
@@ -68,12 +72,17 @@ aws ce get-cost-and-usage \
   --region us-east-1 --output json
 ```
 
-Record the distinct `LINKED_ACCOUNT` values as `accounts_visible`. On tier 3
-(per-account), `accounts_visible` is computed differently — it is the number
-of accounts whose per-account CE call returned data, carried forward from
-`tier3_status` in `scope.json`. A tier 3 run captioned "organization-wide"
-when only a subset succeeded is wrong; the honest figure is "N of M in
-scope".
+Record the distinct `LINKED_ACCOUNT` values the CE source returned as
+`accounts_visible`. This is the one account's view of the world:
+
+- Named account is a **Billing Conductor primary**: `accounts_visible` is
+  every member of the billing group.
+- Named account is a **single member**: `accounts_visible` is one — the named
+  account itself.
+
+If `accounts_visible` differs from `accounts_in_scope` (the drill-phase
+evidence set resolved in Step 2), the overview report states both honestly
+and never captions a partial view as "organization-wide".
 
 ### Call A3 — org-level commitment coverage (RECORD_TYPE)
 
@@ -96,11 +105,10 @@ aws ce get-dimension-values \
   --region us-east-1 --output json
 ```
 
-Classify into three buckets exactly as Step 3 Call 4 does (see Phase B
-below), and compute org-level coverage. **Do not hardcode the value strings;
-Slack has been known to add new ones as commitment products launch.** If a
-returned value cannot be classified, mark org coverage "unavailable" rather
-than guessing.
+Classify into three buckets exactly as Call B4 does (see Phase B below), and
+compute org-level coverage. **Do not hardcode the value strings; AWS has been
+known to add new ones as commitment products launch.** If a returned value
+cannot be classified, mark org coverage "unavailable" rather than guessing.
 
 ### Themes
 
@@ -118,10 +126,9 @@ Themes are **derived from Call A1 output + scope.json**, not researched:
   figure, not a purchase recommendation.
 - **Services with many usage types.** If any service has more than a
   configurable threshold (default 20) of distinct usage types in Call A1
-  output, it is flagged as "sprawling" — this is the pattern that produced
-  the original mode's "fragmentation below threshold" bug when ranking was
-  by usage type. The theme is informational: the service's cost may be
-  significant even when no single usage type is.
+  output, it is flagged as "sprawling" — the pattern that makes service-first
+  ranking preferable to ranking by usage type. The theme is informational:
+  the service's cost may be significant even when no single usage type is.
 
 ### Overview report
 
@@ -134,7 +141,7 @@ Sections:
 2. **Service ranking table** — service, $/mo, share, # usage types, billed
    unit (first-ranked within the service, chosen by $/mo).
 3. **Themes** — the list above, each with its figure.
-4. **Coverage statement** — CE source tier, `rate_basis`,
+4. **Coverage statement** — CE source account, `rate_basis`,
    `accounts_visible of accounts_in_scope`, lookback window, metric and any
    override.
 5. **Recommended drill-downs** — a prose paragraph suggesting which services
@@ -179,6 +186,21 @@ Record `service_chosen` in `scope.json` and proceed to Phase B.
 Phase B queries CE and the Price List API inside the chosen service only.
 All CE calls add a `SERVICE` filter to the single service picked.
 
+The drill runs **four CE calls**, in this order. All four complete before
+Step 4 runs, producing the classification (analyzed / roll-up / noise) and
+the per-line account breakdown that the final report renders:
+
+```
+B1   SERVICE × USAGE_TYPE           usage-type ranking (primary table)
+                                     + authoritative CE service code for Step 4
+B2   USAGE_TYPE × LINKED_ACCOUNT    per-line account breakdown
+                                     ("Where this cost lives" table at the gate
+                                     and under each recommendation in the report)
+B3   USAGE_TYPE × PURCHASE_TYPE     purchase mix for display
+B4   USAGE_TYPE × RECORD_TYPE       precise commitment coverage per line
+                                     (for commitment-eligible services only)
+```
+
 ### Call B1 — usage-type ranking within the service
 
 Two grouping dimensions is the CE API maximum:
@@ -219,10 +241,68 @@ usage_quantity  = sum(UsageQuantity  over N months) / N
 Cost Explorer returns `UsageQuantity` with its own unit. Record it; Step 4
 cross-checks it against the Price List record's `unit` to catch misdecodes.
 
-### Call B2 — purchase mix per selected usage type
+**Rank by `monthly_avg` descending, then classify each line against the two
+drill-phase selection parameters:**
 
-Only for lines that survive `top_n` and `min_finding_usd`. Filter to those
-usage types:
+```
+exclude   monthly_avg <= noise_floor_pct * service_monthly
+          (noise - typically rounding-zero lines; not even shown in the
+          Spend Profile table)
+
+analyze   line is above the noise floor AND cumulative share through this
+          line is <= coverage_share
+          (the Pareto head; Steps 4-7 run end-to-end on this set)
+
+roll up   line is above the noise floor AND cumulative share is already
+          above coverage_share
+          (listed in the Spend Profile table for completeness but not
+          individually decoded, researched, or confirmed; entangled savings
+          still surface via Step 6's resource-level view where applicable)
+```
+
+Only the **analyze** set feeds B2, B3 and B4 — those subsequent calls are
+filtered to this specific list of usage-type codes, not the full set.
+The **roll up** set is rendered in the Spend Profile table with a note
+("roll-up band") and summarised in a one-paragraph closer at the end of
+Recommendations (Step 7).
+
+Both parameters scale with the service total, so the same defaults work for
+a $600/mo test account and a $100k/mo production account. Override per-run
+with `--coverage-share` (e.g. `0.80` for sprawling services, `0.99` for
+completeness) or `--noise-floor-pct` (e.g. `0.01` for very fine detail).
+
+### Call B2 — per-line account breakdown ("Where this cost lives")
+
+For each selected usage type, show which accounts carry the cost. Filter to
+the selected codes, group by `LINKED_ACCOUNT`:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=<lookback_start>,End=<this_month_start> \
+  --granularity MONTHLY --metrics AmortizedCost \
+  --group-by '[
+    {"Type":"DIMENSION","Key":"USAGE_TYPE"},
+    {"Type":"DIMENSION","Key":"LINKED_ACCOUNT"}
+  ]' \
+  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code1>","<code2>",...]}}' \
+  [--billing-view-arn <arn>] \
+  --region us-east-1 --output json
+```
+
+For each `(usage_type, account)` cell, record `$/mo` and its share of the
+usage-type total. The result feeds two places:
+
+- **Drill gate** — a secondary "Where this cost lives" table beneath the
+  primary usage-type table, so the operator sees per-line account placement
+  while deciding what to pursue.
+- **Final report** — under each cost-line subsection in Recommendations, a
+  short account table above the levers.
+
+Account IDs are resolved to names from `~/.corgiro/state/roster.json` for
+display. IDs absent from the roster are shown as the bare ID (Billing
+Conductor billing groups can include accounts outside Corgiro's roster).
+
+### Call B3 — purchase mix per selected usage type
 
 ```bash
 aws ce get-cost-and-usage \
@@ -237,7 +317,7 @@ aws ce get-cost-and-usage \
   --region us-east-1 --output json
 ```
 
-`PURCHASE_TYPE` is the readable On Demand / Reserved / Savings Plans split
+`PURCHASE_TYPE` is the readable On Demand / Reserved / Savings Plans split,
 used for display and for selecting the lever classes worth researching:
 
 ```
@@ -246,39 +326,24 @@ mostly Reserved or Savings Plans                    configuration, capacity
 On Demand on a non-eligible service                 configuration, elimination
 ```
 
-### Call B3 — attribution (account × region) per selected usage type
-
-```bash
-aws ce get-cost-and-usage \
-  --time-period Start=<lookback_start>,End=<this_month_start> \
-  --granularity MONTHLY --metrics AmortizedCost UsageQuantity \
-  --group-by '[
-    {"Type":"DIMENSION","Key":"LINKED_ACCOUNT"},
-    {"Type":"DIMENSION","Key":"REGION"}
-  ]' \
-  --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["<code1>","<code2>",...]}}' \
-  [--billing-view-arn <arn>] \
-  --region us-east-1 --output json
-```
-
-Keep `NoRegion` / `global` cost in each line's total; exclude it from the
-resolved region set. Drop the region dimension entirely for global products
-(S3 bucket inventory, Route 53, CloudFront) rather than inventing one.
-
 ### Resolve regions here
 
-The `REGION` grouping in Call B3 **is** the region data; `regions` resolves
-from it rather than from a separate discovery call:
+Regions do not warrant their own CE call. Step 6's fan-out already needs to
+know which regions each cost line touched, and B1's output already carries
+each usage-type code's region prefix (when present) and the pricing API's
+`regionCode` attribute resolves it canonically. The step-3 `regions` parameter
+is therefore informational:
 
 ```
-regions = auto       the distinct REGION values this call returned
-regions = explicit   the list as given; scope.json records that regions were
-                     not derived from spend
+regions = auto       trust what Step 6 discovers per resource. scope.json
+                     records regions_resolved after Step 6 completes.
+regions = explicit   the list as given; Step 6 restricts its describe calls
+                     to this set.
 ```
 
-Drop the `NoRegion` / `global` pseudo-region from the resolved set. Write the
-result back to `scope.json` as `regions_resolved`. Step 6's fan-out uses
-that, not the raw parameter.
+Drop any `NoRegion` / `global` pseudo-region from the resolved set and the
+region dimension entirely for global products (S3 bucket inventory, Route 53,
+CloudFront) rather than inventing one.
 
 ### Call B4 — commitment coverage per selected usage type (RECORD_TYPE)
 
@@ -313,14 +378,13 @@ coverage = covered-usage / (covered-usage + on-demand usage)
 ```
 
 Commitment coverage from **Call B4 (RECORD_TYPE) is the figure that feeds
-realizable saving**, not the purchase-mix percentage from Call B2. B2 is for
+realizable saving**, not the purchase-mix percentage from Call B3. B3 is for
 display; B4 is precise.
 
 ### Optional — spike attribution
 
 Only if the operator asked why costs changed. Uses `ce:GetCostComparisonDrivers`
-with calendar-month-aligned periods. Omitted here for length; see the previous
-revision of this reference for the exact shape, unchanged in this rewrite.
+with calendar-month-aligned periods. Not part of the default drill.
 
 ## Build the drill cost lines
 
@@ -328,50 +392,43 @@ Per usage-type code, carry forward:
 
 ```json
 {
-  "service":         "Amazon Relational Database Service",
-  "code":            "APS1-ExtendedSupport:Yr3:MySQL5.7",
-  "monthly_avg":     353.28,
-  "usage_quantity":  1472.0,
-  "lookback_months": 3,
-  "ce_unit":         "vCPU-hour",
-  "purchase_mix":    { "On Demand Instances": 100.0 },
-  "record_type_mix": { "Usage": 100.0 },
-  "coverage":        0.0,
-  "accounts":        ["111111111111"],
-  "regions":         ["ap-southeast-1"]
+  "service":         "<CE service name>",
+  "code":            "<usage type code>",
+  "monthly_avg":     <float>,
+  "usage_quantity":  <float>,
+  "lookback_months": <int>,
+  "ce_unit":         "<unit>",
+  "accounts":        [
+    { "account_id": "<12-digit>", "name": "<roster name>", "monthly": <float>, "share": <0..1> }
+  ],
+  "purchase_mix":    { "On Demand Instances": <percent>, "Reserved": <percent>, "Savings Plans": <percent> },
+  "record_type_mix": { "Usage": <percent>, "<covered-usage value>": <percent>, ... },
+  "coverage":        <0..1>
 }
 ```
 
-Rank by `monthly_avg` descending. Select the top `top_n` lines at or above
-`min_finding_usd` (default `25`). Both parameters now apply **within** the
-chosen service, as intended.
+`accounts` here is the B2 breakdown, not the Step-2 fan-out set.
 
-## Drill confirmation gate
+## Proceed to Step 4
 
-Present the selected lines and take one confirmation before decode (Step 4),
-research (Step 5), and confirmation (Step 6) run unattended.
+There is **no gate at the end of the drill phase.** Once B1-B4 have
+classified the usage types (analyzed / roll-up / noise) and
+`spend-profile.json` is written, the mode proceeds directly to Step 4
+(decode), then Step 5 (research), Step 6 (confirm), and Step 7 (report).
+
+Agent output at this transition is a short progress line so the operator
+knows what was selected and what runs next:
 
 ```
-DRILL — <service_chosen>   source tier <N> · <rate_basis> · AmortizedCost
-                           visible: <X> of <Y> accounts · <Z> regions
-                           service total: $<S>/mo (<P>% of org) · <L> months
-
- #  usage type                                      $/mo  purchase    record  coverage
- 1  APS1-ExtendedSupport:Yr3:MySQL5.7              353.28  OD 100%    U 100%      0.0%
- 2  APS1-InstanceUsage:db.t3.medium                185.47  OD 100%    U 100%      0.0%
- ...
- N  APS1-Aurora:StorageIOUsage                       4.39  OD 100%    U 100%      0.0%
-
- below min_finding_usd ($<T>):    <K> lines, $<U>/mo total
-
- Next: decode <N> lines, research levers, verify across <Z> accounts.
- Estimate: <N> pricing calls · ~<D> doc fetches · ~<R> describe/CW calls.
-
- Proceed, adjust (top_n / min_finding_usd / drop a line), or cancel?
+Drill — <service_chosen> · <N> lines analyzed (~<pct>% of service), <K> in roll-up,
+<M> excluded as noise · proceeding to decode, research, and resource
+inspection (~<N> pricing calls + ~<D> doc fetches + ~<R> describe/CW calls).
 ```
 
-Wait for explicit approval. Edits re-render the gate. Steps 4-7 then run
-unattended.
+To change the selection, the operator re-runs the mode with
+`--coverage-share` or `--noise-floor-pct` (or `--service` to pick a
+different service). The service-selection gate at the end of the overview
+phase is the only interactive gate in the drill flow.
 
 ## Persist
 
@@ -381,26 +438,35 @@ Write `spend-profile.json`:
 {
   "run_id":             "...",
   "phase":              "drill",
-  "service_chosen":     "Amazon Relational Database Service",
-  "service_monthly":    981.83,
-  "service_share_of_org": 0.390,
-  "accounts_visible":   6,
-  "accounts_in_scope":  6,
-  "lookback_months":    3,
-  "ce_source_tier":     3,
-  "rate_basis":         "chargeable",
+  "service_chosen":     "<CE service name>",
+  "service_monthly":    <float>,
+  "service_share_of_org": <0..1>,
+  "accounts_visible":   <int>,
+  "accounts_in_scope":  <int>,
+  "lookback_months":    <int>,
+  "ce_source_account":  "<12-digit>",
+  "rate_basis":         "<chargeable|proforma|chargeable (unverified)>",
   "metric":             "AmortizedCost",
   "metric_override":    false,
 
-  "org_commitment_coverage": 0.0,
-  "org_record_type_mix":     { "Usage": 100.0 },
+  "org_commitment_coverage": <0..1>,
+  "org_record_type_mix":     { "Usage": <percent>, "<covered-usage value>": <percent>, ... },
 
-  "lines":              [ /* the ranked drill lines */ ],
-  "below_threshold":    { "lines": 4, "monthly": 4.41 }
+  "coverage_share":     <0..1>,
+  "noise_floor_pct":    <0..1>,
+  "noise_floor_abs":    <float>,       // computed: noise_floor_pct * service_monthly
+  "selection": {
+    "analyzed":  { "lines": <int>, "monthly": <float>, "cumulative_share": <0..1> },
+    "roll_up":   { "lines": <int>, "monthly": <float> },
+    "excluded":  { "lines": <int>, "monthly": <float> }    // noise band
+  },
+
+  "lines":              [ /* every line above noise, each carrying
+                           "selection": "analyzed"|"roll_up" */ ]
 }
 ```
 
-Update `scope.json`: `regions_resolved`, `service_chosen`, the selection the
-operator approved. The overview phase, when run on its own, writes an
-analogous `overview-profile.json` with the ranked service list, themes, and
-coverage statement — no drill fields.
+Update `scope.json`: `regions_resolved` (filled by Step 6), `service_chosen`,
+the selection the operator approved. The overview phase, when run on its
+own, writes an analogous `overview-profile.json` with the ranked service
+list, themes, and coverage statement — no drill fields.

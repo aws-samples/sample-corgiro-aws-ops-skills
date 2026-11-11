@@ -294,16 +294,16 @@ to validate on next run.
   "mechanism_source":     {
     "url":          "https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html",
     "tier":         1,
-    "fetched":      "2026-11-08T22:53:00Z",
+    "fetched":      "<ISO 8601 timestamp>",
     "content_hash": "sha256:...",
     "etag":         "W/\"...\"",
-    "last_modified":"Mon, 03 Nov 2026 12:00:00 GMT"
+    "last_modified":"<HTTP Last-Modified header value>"
   },
   "limitation":           "<what constrains it>",
   "limitation_source":    {
     "url":          "...",
     "tier":         1,
-    "fetched":      "2026-11-08T22:53:00Z",
+    "fetched":      "<ISO 8601 timestamp>",
     "content_hash": "sha256:...",
     "published":    null,
     "flag":         null
@@ -350,6 +350,21 @@ Write `~/.corgiro/cache/cost-optimization-review/levers/<slug>.json` for each
 product researched: the lever records **without** per-run fields, plus the
 `discovery_search` block with `known_result_urls` set to the top results from
 today's discovery search. `chmod 600` the file.
+
+**When:** write both files immediately after Step 5 completes, before Step 6
+starts. Step 5 output is customer-agnostic product knowledge and does not
+depend on Step 6's per-customer evidence; writing early means a Step 6
+failure, a cancelled run, or a crash in later steps does not block the cache
+win for the next run.
+
+**What NOT to cache:**
+
+- Dropped levers (those that failed the fail-stop for lack of citation).
+  They go into `levers.json`'s dropped-lever list in the run directory only.
+  Caching a dropped lever would tell a future run "research already tried and
+  gave up", which defeats the purpose of re-research.
+- Any per-run field listed above (rates, effective_rate, rate_after,
+  pricing_provenance). Rates move; next run re-pulls them.
 
 The run directory and the operator-cache are independent — deleting the run
 directory does not invalidate the cache, and clearing the cache does not

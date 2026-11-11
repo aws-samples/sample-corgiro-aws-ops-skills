@@ -96,6 +96,7 @@ account.
 | `account_filter` | _(from config)_ | Include/exclude lists applied to `accounts` (drill fan-out set). |
 | `max_parallel` | `4` | Concurrent accounts in Step 6 (hard ceiling 10). |
 | `output_format` | `both` | `markdown`, `html`, or `both`. |
+| `run_dir` | `~/Workspaces/corgiro-runs` | Parent directory the run folder is created in, as `<run_dir>/<run_id>/`. `--run-dir <path>` overrides it. **Owned by this mode, not a cross-mode default** — the other modes write `./<run_id>/` relative to the working directory, per [`../../references/report-format.md`](../../references/report-format.md). Promoting this to a shared default is a separate change for the owners of those modes to make. |
 
 ## Workflow
 
@@ -315,7 +316,7 @@ sections:
 ## Output
 
 ```
-<runDirRoot>/<run_id>/
+<run_dir>/<run_id>/
 ├── scope.json                    CE source account, rate basis, accounts, regions, params
 ├── overview-profile.json         always — the overview phase output
 ├── spend-profile.json            drill phase only — ranked cost lines within chosen service
@@ -345,15 +346,14 @@ sections:
   limit — a run_id carrying a 12-digit account ID overflows it by 4
   characters, which no amount of truncating the operator alias fixes.
 
-Parent directory is `runDirRoot` from
-[`../../references/cross-account-defaults.md`](../../references/cross-account-defaults.md)
-(default `~/Workspaces/corgiro-runs`), overridable for one run with
-`--run-dir <path>`. Resolve it to an absolute path, expanding `~`, and create
-it if missing — never write the run directory to a bare relative `./` path,
-because the output carries account IDs, resource configuration and cost
-detail, and the `chmod 700` below does not help if the folder landed in a git
-repo or a synced directory that happened to be the working directory. Then
-secure it per [`../../references/report-format.md`](../../references/report-format.md):
+Parent directory is the `run_dir` parameter above, default
+`~/Workspaces/corgiro-runs`, overridable for one run with `--run-dir <path>`.
+Resolve it to an absolute path, expanding `~`, and create it if missing —
+never write the run directory to a bare relative `./` path, because the
+output carries account IDs, resource configuration and cost detail, and the
+`chmod 700` below does not help if the folder landed in a git repo or a
+synced directory that happened to be the working directory. Then secure it
+per [`../../references/report-format.md`](../../references/report-format.md):
 `chmod 700` the directory and `chmod 600` its files.
 
 ## Error Handling

@@ -151,7 +151,7 @@ Sections:
 6. **Methodology** — APIs called (three CE calls), what was not covered
    (decode, research, per-resource evidence).
 
-Output path: `<runDirRoot>/<run_id>/Cost-Optimization-Review-<ce_source_account>-Overview-<DATE>.{html,md}`.
+Output path: `<run_dir>/<run_id>/Cost-Optimization-Review-<ce_source_account>-Overview-<DATE>.{html,md}`.
 
 ### Service-selection gate
 

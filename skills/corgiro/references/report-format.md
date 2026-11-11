@@ -167,7 +167,7 @@ Use these classes so a color means the same thing in every report:
   </div>
   ```
 
-  Rules: the verdict badge and the saving figure go in `.rec-head`, never buried in prose — they are what a reader scans. Pick the accent by verdict (`rec--quantified` green, `rec--scoped` amber, `rec--done` grey). Put the saving in `.rec-figure .amount`; for `ALREADY DONE` use `$0` or a dash with caption "no gap found". The action text always lands in `.rec-action` so "what do I do" is findable without reading the evidence.
+  Rules: the verdict badge and the saving figure go in `.rec-head`, never buried in prose — they are what a reader scans. Pick the accent by verdict: `rec--quantified` green, `rec--scoped` amber, `rec--done` grey, and `rec--critical` red for an item whose *finding* is the problem rather than the saving (a deadline already passed, a control already breached). Put the saving in `.rec-figure .amount`; for `ALREADY DONE` use `$0` or a dash with caption "no gap found". The action text always lands in `.rec-action` so "what do I do" is findable without reading the evidence.
 - **Cost-line grouping:** wrap each group of cards in `<div class="cost-line"><h3>…</h3> … </div>` to get the separating rule between groups.
 - **Expandable text** (long event descriptions): `<details><summary>…</summary><p>…</p></details>`. The summary and body are a prime injection sink -- HTML-entity-escape the description before inserting it (see Rule 8).
 - **Methodology (required):** every report ends with a `<section class="section">` titled "Methodology" stating tools/APIs used, scope (accounts, regions, date range), and what was **not** covered.

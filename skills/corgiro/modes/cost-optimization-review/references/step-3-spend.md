@@ -191,8 +191,10 @@ Step 4 runs, producing the classification (analyzed / roll-up / noise) and
 the per-line account breakdown that the final report renders:
 
 ```
-B1   SERVICE × USAGE_TYPE           usage-type ranking (primary table)
-                                     + authoritative CE service code for Step 4
+B1   USAGE_TYPE × OPERATION         usage-type ranking (primary table),
+                                     each line split into its real products.
+                                     The SERVICE filter (not a grouping) is
+                                     what fixes the service code for Step 4.
 B2   USAGE_TYPE × LINKED_ACCOUNT    per-line account breakdown
                                      ("Where this cost lives" table at the gate
                                      and under each recommendation in the report)
@@ -211,8 +213,8 @@ aws ce get-cost-and-usage \
   --granularity MONTHLY \
   --metrics AmortizedCost UsageQuantity \
   --group-by '[
-    {"Type":"DIMENSION","Key":"SERVICE"},
-    {"Type":"DIMENSION","Key":"USAGE_TYPE"}
+    {"Type":"DIMENSION","Key":"USAGE_TYPE"},
+    {"Type":"DIMENSION","Key":"OPERATION"}
   ]' \
   --filter '{"And":[
       {"Not":{"Dimensions":{"Key":"RECORD_TYPE",
@@ -223,12 +225,47 @@ aws ce get-cost-and-usage \
   --region us-east-1 --output json
 ```
 
-**Grouping by `SERVICE × USAGE_TYPE` is deliberate**, even though every row
-has the same service value. It makes the service code that owns each usage
-type explicit in the result, which Step 4 cites instead of inferring from the
-code string. The misdecode trap `step-4-decode.md` is built to prevent
+**Group by `USAGE_TYPE × OPERATION`, not `SERVICE × USAGE_TYPE`.** The service
+is already pinned by the filter, so grouping by it returns the same value on
+every row and buys nothing. `OPERATION` buys a great deal: **one usage type can
+be several products, and the operation is what separates them.** Measured on a
+real account:
+
+```
+grouped by USAGE_TYPE only
+  APS1-InstanceUsage:db.t4g.micro                          55.80
+  APS1-RDS:GP3-Storage                                     11.04
+
+grouped by USAGE_TYPE x OPERATION
+  APS1-InstanceUsage:db.t4g.micro  CreateDBInstance:0002   18.60   MySQL
+  APS1-InstanceUsage:db.t4g.micro  CreateDBInstance:0014   18.60   PostgreSQL
+  APS1-InstanceUsage:db.t4g.micro  CreateDBInstance:0018   18.60   MariaDB
+  APS1-RDS:GP3-Storage             CreateDBInstance:0002    5.52
+  APS1-RDS:GP3-Storage             CreateDBInstance:0014    2.76
+  APS1-RDS:GP3-Storage             CreateDBInstance:0018    2.76
+
+both totals reconcile to the same service total; the second just partitions it
+at the granularity where the remedy differs
+```
+
+Without the operation grouping, Step 4 decodes `db.t4g.micro` against the
+pricing API, gets three SKUs for three engines, takes one, and the whole line
+is labelled with an engine that owns a third of its spend.
+
+Losing the `SERVICE` grouping costs nothing Step 4 needs: the CE service name
+comes from `service_chosen`, which the filter already fixes for the whole call,
+so the owning service stays authoritative output rather than an inference from
+the code string. The misdecode trap `step-4-decode.md` prevents
 (`USW2-Amazon-Q-QS-Fee` -> Amazon Q when it is really Amazon QuickSight) is
-closed here, by construction, for every code that came from a CE grouping.
+still closed, by the filter instead of the grouping.
+
+**Rank on the USAGE_TYPE total; split by operation only inside a selected
+line.** Sum the operation rows back to their usage type for ranking and for the
+`coverage_share` / `noise_floor_pct` classification below, exactly as before.
+Only once a line is selected does it carry its per-operation sublines forward
+to Step 4. This keeps line selection unchanged — three $18.60 sublines never
+compete with whole usage types for a place above the Pareto cutoff, which they
+would lose.
 
 Aggregate each usage type the same way as the overview — monthly averages,
 not sums:
@@ -237,6 +274,9 @@ not sums:
 monthly_avg     = sum(AmortizedCost  over N months) / N
 usage_quantity  = sum(UsageQuantity  over N months) / N
 ```
+
+Compute these per `(usage_type, operation)` subline and sum the sublines for the
+usage-type figure, so both levels are available and consistent.
 
 Cost Explorer returns `UsageQuantity` with its own unit. Record it; Step 4
 cross-checks it against the Price List record's `unit` to catch misdecodes.

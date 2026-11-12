@@ -23,17 +23,43 @@ So no lever research happens until the code resolves to a product record.
 
 ## Per selected cost line
 
-1. **Service code comes from Step 3, not inference.** Step 3's Call B1 groups
-   by `SERVICE × USAGE_TYPE`, so the CE service name that owns each code is
-   authoritative output, not guesswork. Map the CE service name to the
+A cost line from Step 3 is a `(usage_type, operation)` pair, because Call B1
+groups by both. Decode each pair, not each usage type.
+
+1. **Service code comes from Step 3, not inference.** Step 3's Call B1 filters
+   to one service for the whole call, so the CE service name that owns each code
+   is authoritative input, not guesswork. Map the CE service name to the
    `pricing:*` service code once per run (RDS `Amazon Relational Database
    Service` → `AmazonRDS`, EKS `Amazon Elastic Container Service for
    Kubernetes` → `AmazonEKS`, and so on). Use `aws pricing describe-services`
    to confirm the mapping when unsure; never infer the service from the
    usage-type string. A code reading `Amazon-Q-QS-Fee` belongs to
-   `AWSQuickSight`, not Amazon Q — the authoritative service is in Step 3's
-   output.
-2. Decode per the shared reference. Write the record to `decode/<code>.json`.
+   `AWSQuickSight`, not Amazon Q — the authoritative service is the one Step 3
+   filtered on.
+2. **Filter the pricing query on BOTH `usagetype` and `operation`.** Filtering
+   on usagetype alone returns every SKU that shares the code, and taking the
+   first silently picks one product out of several. Measured:
+
+   ```
+   usagetype=APS1-InstanceUsage:db.t4g.micro                     3 SKUs
+     45E67P7R8R7HMVBG  CreateDBInstance:0002  MySQL       $0.0250/Hrs
+     BQ5T85JXP99J9D2J  CreateDBInstance:0014  PostgreSQL  $0.0250/Hrs
+     G6V3GV3F5EZR3EFK  CreateDBInstance:0018  MariaDB     $0.0250/Hrs
+
+   usagetype=APS1-InstanceUsage:db.t4g.micro
+     + operation=CreateDBInstance:0014                           1 SKU
+     BQ5T85JXP99J9D2J  PostgreSQL
+   ```
+
+   ```bash
+   aws pricing get-products --service-code <ServiceCode> \
+     --filters Type=TERM_MATCH,Field=usagetype,Value=<Code> \
+               Type=TERM_MATCH,Field=operation,Value=<Operation> \
+     --region us-east-1 --output json
+   ```
+
+   Write the record to `decode/<code>--<operation>.json`. One file per cost
+   line, so two engines on one usage type do not overwrite each other.
 3. Cross-check the price record's `unit` against the `ce_unit` carried from
    Step 3. A mismatch means the wrong SKU resolved: verdict `NOT DECODED`.
 4. Derive the effective rate:
@@ -74,17 +100,27 @@ each decode is a billable API call.
 
 ## When one usage type maps to many SKUs — `DECODED_AMBIGUOUS`
 
-Some usage types return a single product record. Many do not. A few live
-examples from this mode's test runs:
+The `operation` filter in step 2 above resolves most of these, because the
+commonest cause of multiple SKUs is several engines sharing one usage type, and
+the engine is what `operation` encodes. `APS1-InstanceUsage:db.t4g.micro` goes
+from 3 SKUs to 1 once the operation is supplied. **Expect this verdict to be
+the rare path, not the common one.**
+
+What it does not resolve is a usage type whose SKUs differ on an attribute
+Cost Explorer has no dimension for. Measured examples:
 
 ```
-APS1-InstanceUsage:db.t4g.micro        3 SKUs, identical $0.025/hr rate
-                                       (MySQL, MariaDB, PostgreSQL)
-APS1-RDS:GP3-Storage                  30 SKUs, identical $0.138/GB-Mo rate
-                                       (every engine x deployment option)
-APS1-InstanceUsage:db.t3.medium       17 SKUs, 5 distinct rates
-                                       (per engine: Aurora, PostgreSQL, Oracle,
-                                        SQL Server, Db2)
+APS1-RDS:GP3-Storage        30 SKUs, identical $0.138/GB-Mo rate
+                            (every engine x deployment option). The operation
+                            filter narrows it to one engine; deploymentOption
+                            (Single-AZ / Multi-AZ / Multi-AZ readable standby)
+                            still splits it, and CE has no OPERATION value that
+                            distinguishes them.
+APS1-InstanceUsage:db.t3.medium
+                            17 SKUs, 5 distinct rates, per engine. Resolved by
+                            operation; listed here because the rates differ,
+                            so picking the wrong one is a wrong number, not
+                            just a wrong label.
 ```
 
 The unit cross-check does **not** disambiguate — every candidate has the same
@@ -169,6 +205,33 @@ failure this step prevents.
 produce a stable key, so the cost line is analyzed and reported as normal but
 is **not** written to the lever library — better an incomplete library than one
 with entries nothing will ever match again.
+
+**The key is machine-stable, so readability lives in two derived fields beside
+it.** `AmazonRDS|CreateDBInstance:0002|vCPU-hour` tells a human nothing, and
+the fix is not to put authored text in the key — that is what drifted from
+"RDS Extended Support" to "Extended Support" between two runs. Compose a
+`label` from price-record attributes only, so two runs produce the same string,
+and record the usage types the lever set was seen on:
+
+```json
+"catalogue_key":  "AmazonRDS|CreateDBInstance:0002|vCPU-hour",
+"label":          "Amazon RDS extended support, MySQL, per vCPU-hour",
+"derived_from":   { "servicename": "Amazon Relational Database Service",
+                    "databaseEngine": "MySQL",
+                    "operation": "CreateDBInstance:0002",
+                    "unit": "vCPU-hour" },
+"observed_codes": [
+  { "code": "APS1-ExtendedSupport:Yr3:MySQL5.7",     "first_seen": "2026-11-11", "last_seen": "2026-11-12" },
+  { "code": "APS1-ExtendedSupport:Yr1-Yr2:MySQL8.0", "first_seen": "2026-11-11", "last_seen": "2026-11-12" }
+]
+```
+
+`label` is built by joining the attributes in `derived_from` — every one of
+them verbatim from the price record, none invented. `observed_codes` is what
+makes the library searchable the way an operator actually asks the question
+("have we analyzed `APS1-RDS:GP3-Storage`?"), since the key deliberately
+excludes region, price tier and instance class. Merge on write: keep existing
+entries, update `last_seen`, append codes new to this run.
 
 The library itself is operator-local state, not part of the skill folder:
 

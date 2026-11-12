@@ -109,6 +109,43 @@ overwrite the file at the end. The library can never block or alter a result.
   `not_reproduced` comparison.
 - `--cache-dir <path>` overrides the default location.
 
+## Lever scope: shared or engine-scoped
+
+A selected cost line can carry several operations — three engines under one
+`db.t4g.micro` usage type, for instance. Researching a full lever set per
+operation would triplicate work and print three near-identical subsections for
+$55.80 of spend. Most levers do not care which engine it is.
+
+Tag every lever with a `scope`:
+
+```
+shared          the lever and its mechanism are identical across the operations
+                on this cost line. Research ONCE, report once, name the
+                operations it covers.
+                  measured: db.t4g.micro bills $0.0250/Hrs on MySQL,
+                  PostgreSQL and MariaDB alike, so rightsizing, delete-if-idle
+                  and commitment coverage are one analysis
+
+engine-scoped   the mechanism, the limitation or the deadline differs by
+                operation. Research and report ONE PER OPERATION PRESENT.
+                  version lifecycle: AWS publishes a separate release calendar
+                  per engine, so "upgrade before <date>" has a different date
+                  for each
+                  engine features: pgvector exists on PostgreSQL and not MySQL,
+                  so an alternative-vector-store lever applies to one and not
+                  the other
+```
+
+Decide the scope from the product, as with relevance in
+[`step-6-confirm.md`](step-6-confirm.md) — not from whether the evidence
+happened to differ. A lever is `engine-scoped` when the documentation that
+grounds it is engine-specific, even if this customer runs one engine.
+
+The library files follow the key, so engine-scoped levers land in the file for
+their own operation while a `shared` lever is written to each operation's file
+with its `scope` recorded. A reader of one file therefore sees the complete set
+for that product without having to know the sharing.
+
 ## Lever classes and their grounding source
 
 Which source supplies the mechanism and limitation depends on the lever class.
@@ -334,6 +371,8 @@ that should never have shipped.
   "lever_id":             "nat-gateway-endpoints-s3-ddb",
   "name":                 "S3 / DynamoDB gateway endpoints",
   "class":                "configuration",
+  "scope":                "shared",                  // or "engine-scoped"; see Lever scope
+  "covers_operations":    ["CreateDBInstance:0002", "CreateDBInstance:0014"],
   "mechanism":            "<one sentence>",
   "mechanism_source":     {
     "url":          "https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html",

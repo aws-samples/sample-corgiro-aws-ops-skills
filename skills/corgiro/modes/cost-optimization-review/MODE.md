@@ -143,8 +143,9 @@ Runs in two phases:
   CE calls classify every usage type in the service as **analyzed**,
   **roll-up**, or **noise** per the `coverage_share` / `noise_floor_pct`
   rule in [`references/step-3-spend.md`](references/step-3-spend.md). B1
-  ranks usage types in the chosen service (`SERVICE × USAGE_TYPE`, which
-  hands Step 4 its authoritative service code); B2 produces the per-line
+  ranks usage types in the chosen service (`USAGE_TYPE × OPERATION`, which
+  splits each line into the products it actually bills; the SERVICE filter
+  fixes the service code Step 4 decodes against); B2 produces the per-line
   account breakdown ("Where this cost lives" table); B3 derives purchase
   mix for display; B4 computes precise per-line commitment coverage from
   `RECORD_TYPE` for commitment-eligible services. Write
@@ -251,8 +252,14 @@ sections:
    the drill's unit rates × observed configuration matches the CE totals.
 4. **Recommendations** — grouped by cost line. Each cost-line subsection
    begins with a short **"Where this cost lives"** account table (from
-   Call B2), followed by the resources that drive this line in those
-   accounts (from Step 6), then the line's levers. Per lever: verdict,
+   Call B2); then, when the line carries more than one operation, a
+   **per-operation breakdown** naming the product each one decoded to and its
+   share of the line (`CreateDBInstance:0002` MySQL $18.60,
+   `CreateDBInstance:0014` PostgreSQL $18.60, ...) so a reader sees the line
+   is several products; followed by the resources that drive this line in those
+   accounts (from Step 6), then the line's levers. A `shared` lever appears
+   once, naming the operations it covers; an `engine-scoped` lever appears once
+   per operation present. Per lever: verdict,
    evidence with the call that produced it, gross and realizable saving,
    the citation, and the recommendation text per the composition rule. A
    reader who cares about "what do I do about this specific cost line"

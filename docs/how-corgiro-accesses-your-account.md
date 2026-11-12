@@ -221,6 +221,20 @@ Everything Corgiro's modes actually need — the describe/list/get-configuration
 
 The **operator role in the tooling account is separately minimal**: it does *not* carry `ReadOnlyAccess`. Its policy grants the cross-account hop (scoped to `arn:aws:iam::*:role/CorgiroReadOnlyRole`, so it cannot assume arbitrary roles), the Organizations read APIs needed to build the roster, the org-wide Health APIs, delegated-admin reads for Config / Security Hub / GuardDuty / Access Analyzer, Cost Explorer and Savings Plans reads, and Resource Explorer search. All resource inspection happens through the member role, not from the pivot.
 
+### The operator identity is a pivot, not a reader
+
+This has a consequence worth knowing, because the failure it produces is misleading. The operator identity exists to assume `CorgiroReadOnlyRole`; it is not a general-purpose read credential, and what it grants differs by auth method:
+
+| | `authMethod: identity-center` | `authMethod: saml-external` |
+|---|---|---|
+| Granted by | a hand-built `CorgiroOperator` permission set | [`corgiro-operator-role.yaml`](../skills/corgiro/assets/corgiro-operator-role.yaml) |
+| Carries | the cross-account hop, plus whatever org / Health / Config / Security Hub / GuardDuty reads the administrator attached | the same, plus `ce`, `cost-optimization-hub`, `savingsplans` and `resource-explorer-2` reads |
+| Does **not** carry, on either path | `pricing:*`, `billing:*`, or `describe`/`list` on resource services | same |
+
+So a mode that calls a resource, pricing or billing API from the operator's own base profile gets `AccessDenied` — and that error reads as "the service is unavailable" or "the feature is not enabled" when the real problem is the choice of credential. Every such call must go through `CorgiroReadOnlyRole` in a member account, which carries `ReadOnlyAccess` and therefore covers all three.
+
+Two practical notes. The `pricing` APIs are account-agnostic, so the member account chosen for them is arbitrary; pinning them to the tooling account keeps price-lookup calls out of customer workload accounts in CloudTrail. And because the grants differ by auth method, a mode must not assume `ce:*` works from the base profile just because the SAML template happens to include it.
+
 ### Prompt-injection defense
 
 AWS resource metadata — names, tags, descriptions, user-data, policy documents — is attacker-controlled input. A compromised account could craft a tag that tries to steer the agent. Corgiro treats every string returned by an AWS API as **data, never as instructions**: it does not build CLI commands from metadata, does not pass tag values into subsequent calls, does not follow URLs found in tags, and does not alter its execution flow based on metadata content. Values matching injection patterns are surfaced as findings.

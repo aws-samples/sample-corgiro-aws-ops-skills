@@ -22,6 +22,7 @@ Each sweep finds:
 - **ElastiCache end-of-support** - Redis OSS engine version risk, upgrade targets, Extended Support cost exposure
 - **Security posture** - org-wide A-F scorecard across threat detection, identity, data protection, logging, network, and compliance
 - **EC2 compute hygiene** - Assess EC2 fleet health across accounts in the organization. Evaluates instance generation, rightsizing
+- **Cost optimization** - what drives spend by usage type, the levers available for that specific product grounded in AWS documentation and the Price List API, and which of them actually apply to your resources
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
 
@@ -132,10 +133,12 @@ skills/
         ├── bedrock-model-lifecycle/
         │   └── MODE.md
         ├── eks-ingress-migration/
+        │   └── MODE.md
         ├── cost-optimization-review/
         │   ├── MODE.md
-        │   └── references/               ← step-2..6 + lever-catalogue
-        │   └── MODE.md
+        │   └── references/
+        │       ├── access-pattern.md     ← CE source tiers + credential rules
+        │       └── step-2…6-*.md         ← scope, spend, decode, research, confirm
         ├── mode-builder/
         │   ├── MODE.md
         │   └── references/

@@ -69,6 +69,7 @@ Cross-cutting knowledge, configuration, and conventions reused by more than one 
 | `cross-account-defaults.md` | Default config values + AssumeRole pattern                                                      |
 | `credential-resolution.md`  | Per-account credential dispatch on each roster entry's `via` (keeps modes access-mode-agnostic) |
 | `aws-version-lifecycle.md`  | How to scrape EOL/lifecycle dates from AWS docs (fail-stop, never model knowledge)              |
+| `aws-pricing-grounding.md`  | Decode usage-type codes and ground every price in the Price List Query API (fail-stop, never model knowledge) |
 | `report-format.md`          | Shared report structure, branding, and badge vocabulary; pairs with `assets/report-theme.css`   |
 
 If two or more modes need the same fact or procedure, it belongs here — not copy-pasted into each `MODE.md`.

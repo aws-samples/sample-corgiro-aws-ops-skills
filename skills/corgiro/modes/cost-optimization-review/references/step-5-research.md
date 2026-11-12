@@ -8,82 +8,105 @@ This is the only step that leaves AWS APIs. It uses `web_search` and `web_fetch`
 only. No MCP: Corgiro ships no `mcpServers` block and installs into whatever
 agent the customer runs.
 
-## Live research by default; optional validated cache
+## Live research every run; the cache is a record, not a shortcut
 
 The mode researches levers **live every run**, from AWS documentation. The skill
 folder does not carry a lever catalogue — levers for a service are discovered,
 fetched and synthesized each time, so the research surfaces newly launched
 levers as they appear and never relies on a stale pre-populated list.
 
-An **operator-local cache** at `~/.corgiro/cache/cost-optimization-review/levers/`
-avoids repeating the expensive LLM synthesis work for products whose
-documentation has not changed since last run. The cache is a **performance
-optimization with a correctness guard rail**, never an authority: every cached
-lever is validated against live AWS docs before being used, and every run still
-does a live **discovery search** to catch levers the cache does not know about.
+An **operator-local lever library** at
+`~/.corgiro/cache/cost-optimization-review/levers/` accumulates what has been
+researched, one file per product. It is a **record of past research, never an
+input to a verdict and never a reason to skip a step.** What it is good for:
+
+- **Consistency.** Two operators drilling the same product in different
+  accounts produce the same lever set, described the same way, rather than two
+  independently worded analyses.
+- **Coverage ledger.** Which products have ever been analyzed, with what
+  citations — answers "have we looked at NAT gateway yet".
+- **Audit.** What the documented basis was on a given date, when a
+  recommendation is challenged months later.
 
 ```
-operator-local cache layout (mode 700 on dirs, 600 on files)
+operator-local lever library (mode 700 on dirs, 600 on files)
   ~/.corgiro/cache/cost-optimization-review/
     levers/
-      AmazonEC2--NAT-Gateway--NatGateway--GB.json
-      AmazonRDS--Database-Instance--CreateDBInstance-0002--Hrs.json
+      AmazonEC2--NatGateway--GB.json
+      AmazonRDS--CreateDBInstance-0002--Hrs.json
+      AmazonRDS--CreateDBInstance-0002--vCPU-hour.json
       ...
   file name = slugified catalogue_key from Step 4
 ```
 
-Per decoded cost line, before research:
+Per decoded cost line:
 
 ```
-load cache file for catalogue_key, if present:
-  for each lever in file:
-    for each source URL (mechanism_source, limitation_source):
-      conditional GET using stored ETag / Last-Modified, or re-fetch
-      compute sha256(content); compare to stored content_hash
-      if changed  -> mark lever as "source_changed"
-      if same     -> stored mechanism / limitation text stands
+research every lever live from scratch (the section below), every run.
+  the discovery search runs first and is non-negotiable (below)
+  every rate comes from the pricing API this run
+  every mechanism and limitation is taken from a page fetched this run
 
-  always re-pull every rate from pricing API (prices move; cache stores no rates)
+then: read the library file for catalogue_key, if one exists, and compare.
+  match a library lever to a researched one on `lever_id` first, then on a
+    case-insensitive match of `name` — IDs drift between runs even when the
+    lever is the same ("rds-es-upgrade-to-standard-support" one run,
+    "rds-es-upgrade-to-standard-support-version" the next), so an ID-only
+    comparison reports false gaps.
+  a lever in the library that today's research did not produce
+    -> state it in levers.json under "not_reproduced" with the library's
+       fetch date, so a lever that quietly disappeared from the docs is
+       visible rather than silently dropped
+  a lever today's research produced that the library lacks
+    -> new; it simply appears in the refreshed file
 
-  then: run the DISCOVERY SEARCH (below)
-
-  then: for each lever marked "source_changed", re-synthesize that lever
-        from the newly fetched content.  Promote cached levers whose
-        sources are unchanged without touching them.
-
-if no cache file exists:
-  research every lever live from scratch (the section below)
-  write a new cache file at the end of the run
+then: overwrite the library file with this run's research.
 ```
 
-**Mandatory per-run discovery search.** The cache can only save synthesis work
-for levers it already knows about. A newly launched AWS feature produces a new
-lever the cache cannot anticipate, so each run issues one
+**`lever_id` naming.** Derive it from the lever `name`: lowercase, spaces and
+punctuation to hyphens, prefixed with a short service token
+(`rds-es-`, `aoss-`, `nat-`). Two runs that find the same lever should produce
+the same id. The `name`-based fallback above exists because they sometimes
+will not, not as a licence to be loose about it.
+
+> **Why there is no cache-hit path.** An earlier design validated stored
+> content hashes and skipped re-synthesizing unchanged levers. It was removed
+> because it could not pay for itself: `web_fetch` exposes no HTTP headers, so
+> the conditional GET it depended on is unavailable, and validating a stored
+> quote still requires re-fetching the page — at which point the content needed
+> to re-synthesize is already in hand. The saving was writing two sentences;
+> the cost was a validation mechanism that silently failed open. Research is
+> cheap relative to being wrong about what AWS currently documents.
+
+**Mandatory per-run discovery search.** A newly launched AWS feature produces a
+lever no past run could know about, so each run issues one
 `site:docs.aws.amazon.com` search for the product and compares the top URLs
-against the cache's `discovery_search.known_result_urls`:
+against the library's `discovery_search.known_result_urls`:
 
 ```
-new URL in the top results -> treat as a candidate new lever, research it from
-                              scratch, add to the cache file on success
-URL known in cache and still returned -> no action (that lever is already handled)
-URL previously known but NOT in today's top results -> flag the cached lever
-                              for re-verification; do NOT silently drop it,
-                              AWS docs reorganize
+new URL in the top results -> research it from scratch; it joins this run's
+                              lever set and the refreshed library file
+URL known in the library and still returned -> research it again anyway; the
+                              library is a record, not a skip. The match only
+                              tells you this is not a newly launched lever.
+URL previously known but NOT in today's top results -> research the product
+                              anyway and, if the lever does not reappear,
+                              record it under "not_reproduced". Do NOT silently
+                              drop it; AWS docs reorganize.
 ```
 
 The discovery search is one call per product per run. Non-negotiable; it is the
 only mechanism that catches positive staleness (new levers).
 
-**Fail-open on cache errors.** A malformed cache file, a hash mismatch that
-cannot be resolved, or a `web_fetch` failure on a stored URL falls through to
-full live research for that product. The failed cache file is overwritten by
-the fresh research output at the end of the run. The cache never blocks a
-correct result.
+**Fail-open on library errors.** A malformed or unreadable library file changes
+nothing about the run — research was going to happen regardless. Note it and
+overwrite the file at the end. The library can never block or alter a result.
 
 **Operator controls:**
 
-- `--no-cache` on invocation skips cache reads entirely for this run (still
-  writes fresh cache files at the end).
+- `--no-cache` skips reading the library for this run (it is still written).
+  Research is unaffected either way; this only suppresses the
+  `not_reproduced` comparison.
 - `--cache-dir <path>` overrides the default location.
 
 ## Lever classes and their grounding source
@@ -278,15 +301,36 @@ rate is not observable, so use list for that side and flag the assumption.
 
 ## Lever record
 
-The cache stores one file per `catalogue_key`; each file holds an array of
-lever records with the shape below. **Rates are NOT stored in the cache** —
-they are re-pulled from the pricing API on every run. The cache stores
-mechanism/limitation/proof/if-unprovable/effort and the content hashes needed
-to validate on next run.
+The library stores one file per `catalogue_key`; each file holds an array of
+lever records with the shape below. **Rates are NOT stored** — they are pulled
+from the pricing API on every run. The library stores
+mechanism/limitation/proof/if-unprovable/effort, the source URLs, what each
+claim rests on, and the date it was fetched.
+
+**Every source object carries either a `quote` or a `basis` — never neither.**
+The two are not interchangeable and the distinction is the point:
+
+```
+quote   the sentence from the fetched page, verbatim, that the claim rests on.
+        Use this whenever the source is a documentation page. It is what makes
+        the record auditable: a reader opens the URL and checks the sentence is
+        still there.
+
+basis   a one-line statement of where the claim comes from when there is no
+        sentence to quote — because the evidence is tier 0 rather than prose.
+        e.g. "per-vCPU-hour billing basis is the `unit` field on the price
+        record itself (sku KY9YE6TN8DHNHPU3), not a documented sentence".
+```
+
+A source object with neither is not a citation, and the lever drops under the
+fail-stop below. Without this rule a missing `quote` is ambiguous: a reader
+cannot tell "no quote because the evidence is the price record's own unit
+field" from "no quote because nobody recorded one", and the second is a lever
+that should never have shipped.
 
 ```json
 {
-  "catalogue_key":        "AmazonEC2|NAT Gateway|NatGateway|GB",
+  "catalogue_key":        "AmazonEC2|NatGateway|GB",
   "lever_id":             "nat-gateway-endpoints-s3-ddb",
   "name":                 "S3 / DynamoDB gateway endpoints",
   "class":                "configuration",
@@ -295,16 +339,14 @@ to validate on next run.
     "url":          "https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html",
     "tier":         1,
     "fetched":      "<ISO 8601 timestamp>",
-    "content_hash": "sha256:...",
-    "etag":         "W/\"...\"",
-    "last_modified":"<HTTP Last-Modified header value>"
+    "quote":        "<the sentence the mechanism rests on, verbatim>"
   },
   "limitation":           "<what constrains it>",
   "limitation_source":    {
     "url":          "...",
     "tier":         1,
     "fetched":      "<ISO 8601 timestamp>",
-    "content_hash": "sha256:...",
+    "quote":        "<the sentence the limitation rests on, verbatim>",
     "published":    null,
     "flag":         null
   },
@@ -314,7 +356,22 @@ to validate on next run.
 }
 ```
 
-Per-run fields that are **not** stored in the cache (populated fresh each run):
+A source grounded in tier-0 data rather than a documented sentence carries
+`basis` in place of `quote`:
+
+```json
+  "mechanism_source":     {
+    "tier":         0,
+    "fetched":      "<ISO 8601 timestamp>",
+    "basis":        "per-vCPU-hour billing is the `unit` field on the price record itself (sku KY9YE6TN8DHNHPU3), not a documented sentence"
+  },
+```
+
+`url` is optional on a tier-0 source, because the Price List API response is
+the evidence and it is already identified by SKU and price-list version in the
+run's `decode/<code>.json`.
+
+Per-run fields that are **not** stored in the library (populated fresh each run):
 
 ```json
 {
@@ -331,6 +388,8 @@ Per-run fields that are **not** stored in the cache (populated fresh each run):
 No citable source for the mechanism      -> drop the lever
 No citable source for the limitation     -> drop the lever
 A number with no SKU or no doc citation  -> drop the lever
+A source object with neither a quote
+  nor a basis                            -> not a citation; drop the lever
 ```
 
 Do not soften an uncitable lever into "consider ...". An uncited lever is worse
@@ -349,23 +408,25 @@ Write `levers.json` into the **run directory**: one array of lever records per
 Write `~/.corgiro/cache/cost-optimization-review/levers/<slug>.json` for each
 product researched: the lever records **without** per-run fields, plus the
 `discovery_search` block with `known_result_urls` set to the top results from
-today's discovery search. `chmod 600` the file.
+today's discovery search. Overwrite any existing file — this run's research is
+the current record. `chmod 600` the file.
 
 **When:** write both files immediately after Step 5 completes, before Step 6
 starts. Step 5 output is customer-agnostic product knowledge and does not
 depend on Step 6's per-customer evidence; writing early means a Step 6
-failure, a cancelled run, or a crash in later steps does not block the cache
-win for the next run.
+failure, a cancelled run, or a crash in later steps still leaves the research
+recorded.
 
-**What NOT to cache:**
+**What NOT to write to the library:**
 
 - Dropped levers (those that failed the fail-stop for lack of citation).
   They go into `levers.json`'s dropped-lever list in the run directory only.
-  Caching a dropped lever would tell a future run "research already tried and
-  gave up", which defeats the purpose of re-research.
+  Recording a dropped lever in the library would read as "already handled" to
+  a future reader when the truth is the opposite.
 - Any per-run field listed above (rates, effective_rate, rate_after,
-  pricing_provenance). Rates move; next run re-pulls them.
+  pricing_provenance). Rates move; next run pulls them again.
 
-The run directory and the operator-cache are independent — deleting the run
-directory does not invalidate the cache, and clearing the cache does not
-affect past run reports.
+The run directory and the library are independent — deleting the run
+directory does not affect the library, and clearing the library does not
+affect past run reports or any future run's correctness. A missing library
+costs nothing but the `not_reproduced` comparison.

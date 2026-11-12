@@ -122,35 +122,72 @@ the price.
 
 ## The catalogue key
 
-The decoded identity is also the cache key for lever research, so Step 5 can
-reuse prior synthesized levers for the same product across runs.
+The decoded identity is also the key the lever library is filed under, so the
+record of what was researched for a product survives across runs.
 
 ```
-catalogue_key = (service_code, productFamily, operation, unit)
+catalogue_key = (service_code, operation, unit)
 ```
 
-One key covers every regional variant of a product, while keeping genuinely
+Every component comes verbatim from the price record, so two runs decoding the
+same code land on the same key. **`productFamily` is deliberately NOT part of
+the key**, even though it reads better: it is absent on most records and, worse,
+inconsistently returned for the same code across runs. Observed in two runs
+against the same account:
+
+```
+APS1-InstanceUsage:db.t4g.micro   productFamily 'Database Instance'  /  null
+USW2-IndexingOCU                  'Amazon OpenSearch Service Serverless' / null
+                                  populated on 4 of 16 decode records
+```
+
+A key containing an agent-supplied label drifts. It already did: one run filed
+RDS extended support under `RDS Extended Support`, the next under
+`Extended Support`, producing two library files for one product and a
+`not_reproduced` comparison that silently had nothing to compare against. Keep
+`productFamily` in the decode record as description; keep it out of the key.
+
+`unit` carries the discrimination `productFamily` was meant to provide. RDS
+instance hours and the RDS extended-support surcharge share
+`operation: CreateDBInstance:0002` and are separated only by unit:
+
+```
+AmazonRDS|CreateDBInstance:0002|Hrs         instance hours
+AmazonRDS|CreateDBInstance:0002|vCPU-hour   extended support (both year tiers)
+AmazonES|IndexingOCU|OCU-hours              serverless indexing
+AmazonES|SearchOCU|OCU-hours                serverless search
+```
+
+One key covers every regional variant of a product, and every usage-type code
+that shares its lever set — the Yr1-Yr2 and Yr3 extended-support codes are one
+product with one set of levers, so one key is correct. It still keeps genuinely
 different products apart. A regex over raw strings would fold
 `NatGateway-Prvd-Bytes` into the standard NAT lever set, which is exactly the
 failure this step prevents.
 
-The cache itself is **operator-local state**, not part of the skill folder:
+**`operation` is required to form a key.** A price record without it cannot
+produce a stable key, so the cost line is analyzed and reported as normal but
+is **not** written to the lever library — better an incomplete library than one
+with entries nothing will ever match again.
+
+The library itself is operator-local state, not part of the skill folder:
 
 ```
 ~/.corgiro/cache/cost-optimization-review/levers/<slugified-key>.json
 ```
 
 Mode `700` on the directory, `600` on the files, same as the rest of
-`~/.corgiro/`. The skill folder is never written to by a run. See Step 5 for
-the cache schema, validation rules, and the mandatory per-run discovery
-search that catches newly launched levers the cache does not know about.
+`~/.corgiro/`. The skill folder is never written to by a run. The library is
+read for comparison only — Step 5 researches every lever live on every run
+regardless of what the library holds. See Step 5 for its schema, the
+`not_reproduced` comparison, and the mandatory per-run discovery search.
 
 ## Pass forward to Step 5
 
 ```json
 {
   "code":             "NatGateway-Bytes",
-  "catalogue_key":    "AmazonEC2|NAT Gateway|NatGateway|GB",
+  "catalogue_key":    "AmazonEC2|NatGateway|GB",
   "product_family":   "NAT Gateway",
   "group_desc":       "Charge for per GB data processed by NatGateways",
   "monthly_avg":      12400.00,

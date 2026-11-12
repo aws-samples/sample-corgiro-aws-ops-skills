@@ -249,12 +249,18 @@ exclude   monthly_avg <= noise_floor_pct * service_monthly
           (noise - typically rounding-zero lines; not even shown in the
           Spend Profile table)
 
-analyze   line is above the noise floor AND cumulative share through this
-          line is <= coverage_share
-          (the Pareto head; Steps 4-7 run end-to-end on this set)
+analyze   line is above the noise floor AND the cumulative share of the
+          lines ABOVE it is < coverage_share
+          (the Pareto head. Test the running total BEFORE this line, not
+           through it, so the line that crosses the cutoff is included --
+           "select until cumulative share reaches coverage_share", as the
+           parameter is defined in MODE.md. Testing the total THROUGH the
+           line excludes the crossing line always, and silently splits a
+           tie: two lines at 50% each put the second at a cumulative 1.00,
+           rolling it up while its identical twin is analysed end-to-end.)
 
-roll up   line is above the noise floor AND cumulative share is already
-          above coverage_share
+roll up   line is above the noise floor AND the cumulative share of the
+          lines above it has already reached coverage_share
           (listed in the Spend Profile table for completeness but not
           individually decoded, researched, or confirmed; entangled savings
           still surface via Step 6's resource-level view where applicable)

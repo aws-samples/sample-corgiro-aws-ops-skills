@@ -171,9 +171,12 @@ For each decoded cost line, produce the levers available for that product,
 each with its mechanism, its rate after, its limitations, and what evidence
 would prove it applies. **A lever whose mechanism or limitation cannot be
 cited to a fetched AWS page does not ship.** Levers are researched live
-every run; an operator-local cache under `~/.corgiro/cache/` with
-content-hash validation and a mandatory discovery search handles the
-performance optimization without ever hard-coding levers in the skill.
+every run, never hard-coded in the skill and never read back from a previous
+run: a mandatory discovery search catches newly launched levers, and every
+rate, mechanism and limitation comes from something fetched this run. An
+operator-local lever library under `~/.corgiro/cache/` records what each run
+found, for consistency between operators and for audit — it is a record, not
+a shortcut, and it never alters a verdict.
 
 ### Step 6: Confirm applicability (per lever)
 

@@ -4,7 +4,7 @@ How every report-producing Corgiro mode renders output, so reports look identica
 regardless of which mode produced them. Reports are **agent-authored, self-contained
 single-file HTML** — no scripts to run, no build step, no network calls.
 
-**Applies to:** `account-coverage`, `health-event-analysis`, `rds-eol-analysis`, `eks-eol-analysis`, `elasticache-eol-analysis`, `ec2-compute-review`, `security-posture-review`.
+**Applies to:** `account-coverage`, `health-event-analysis`, `rds-eol-analysis`, `eks-eol-analysis`, `elasticache-eol-analysis`, `ec2-compute-review`, `security-posture-review`, `cost-optimization-review`.
 `setup-corgiro` prints a console summary only — it produces no report file.
 
 ## Rules
@@ -37,6 +37,10 @@ single-file HTML** — no scripts to run, no build step, no network calls.
    ```
 
    If the count is not 1, the logo is broken — re-run the injection. Only then proceed to Rule 6 (open).
+
+10. **Author the HTML and Markdown directly with the file-write tool. Do not generate them via shell heredoc.** The agent writes the `<Report-Name>-<DATE>.html` and `<Report-Name>-<DATE>.md` files by emitting their contents through the file-write tool, with every tag visible in the tool call for review. This is the skill's "agent-authored" property from Rule 1 made operational. **Python is used only for the Rule 9 asset splice** (reading `report-theme.css` and `corgiro-logo.datauri` and replacing the two placeholders in the already-written HTML). No part of the report body — KPI cards, section bodies, tables, prose — may be emitted from inside a shell heredoc.
+
+    Why this rule exists: `python3 << HEREDOC` (unquoted terminator) hands the body to bash first, and bash eats every `${expression}` as a parameter expansion before Python sees it. A Python f-string like `${total:,.2f}` becomes empty under that chain, and the resulting report silently loses every dollar figure it should have shown. There is no linter in the agent pipeline that catches this. Writing the HTML through the file-write tool makes the class impossible: no shell, no heredoc, no bash expansion. Loops over data (ranking rows, theme items, etc.) are composed in agent code before the write call and emitted as the finished HTML string.
 
 ## Naming conventions (shared across modes)
 
@@ -129,8 +133,42 @@ Use these classes so a color means the same thing in every report:
 
 ## Component cheat-sheet
 
-- **Table:** `<table class="data-table">` with a `<thead>`; right-align numbers with `<td class="num">`; render account IDs / ARNs with `<td class="mono">`.
+- **Table:** `<table class="data-table">` with a `<thead>`; right-align **numeric columns in data tables** (i.e. tables with repeating rows of the same shape) with `<td class="num">`; render account IDs / ARNs with `<td class="mono">`. **Do not use `num` on key-value info tables** (two-column `<th>label</th><td>value</td>` tables used for run metadata, where the value is narrative — "1 of 5 in scope — ...", "chargeable (unverified)") — mixed alignment there reads as a layout bug. Those value cells should be left-aligned; apply `mono` if the value is an account ID or ARN, otherwise no class.
 - **Badge:** `<span class="badge badge--red">Critical</span>`.
+- **Recommendation card (required for any "what to do" item):** a recommendation rendered as a heading plus prose disappears — `.section h4` is 15px while body copy is 16px, so the heading is *smaller* than the text under it and a reader scanning the section sees an undifferentiated wall. Use `.rec` instead, one card per action:
+
+  ```html
+  <div class="rec rec--quantified">          <!-- or rec--scoped / rec--done / rec--critical -->
+    <div class="rec-head">
+      <div class="rec-headline">
+        <div class="rec-title">Delete the collections if the knowledge bases are not needed</div>
+        <div class="rec-badges">
+          <span class="badge badge--green">QUANTIFIED</span>
+          <span class="badge badge--zinc">elimination</span>
+        </div>
+      </div>
+      <div class="rec-figure">
+        <span class="amount">$176.64</span>
+        <span class="caption">realizable / month</span>
+      </div>
+    </div>
+    <div class="rec-body">
+      <div class="rec-label">Evidence</div>
+      <ul class="rec-evidence"> … call + finding per item … </ul>
+      <div class="rec-warn">                  <!-- only when a caveat changes whether it works -->
+        <div class="rec-label">Before you act</div>
+        <p>Deleting one of the two saves nothing — the floor is a shared pool.</p>
+      </div>
+      <div class="rec-action">
+        <div class="rec-label">Recommendation</div>
+        <p>…the action, opening with the verification step when a premise is unverified…</p>
+      </div>
+    </div>
+  </div>
+  ```
+
+  Rules: the verdict badge and the saving figure go in `.rec-head`, never buried in prose — they are what a reader scans. Pick the accent by verdict: `rec--quantified` green, `rec--scoped` amber, `rec--done` grey, and `rec--critical` red for an item whose *finding* is the problem rather than the saving (a deadline already passed, a control already breached). Put the saving in `.rec-figure .amount`; for `ALREADY DONE` use `$0` or a dash with caption "no gap found". The action text always lands in `.rec-action` so "what do I do" is findable without reading the evidence.
+- **Cost-line grouping:** wrap each group of cards in `<div class="cost-line"><h3>…</h3> … </div>` to get the separating rule between groups.
 - **Expandable text** (long event descriptions): `<details><summary>…</summary><p>…</p></details>`. The summary and body are a prime injection sink -- HTML-entity-escape the description before inserting it (see Rule 8).
 - **Methodology (required):** every report ends with a `<section class="section">` titled "Methodology" stating tools/APIs used, scope (accounts, regions, date range), and what was **not** covered.
 

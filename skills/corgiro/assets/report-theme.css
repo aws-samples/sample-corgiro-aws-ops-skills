@@ -112,6 +112,108 @@ body {
   margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--zinc-200);
 }
 
+/* ---- Prose, lists, and subheads inside a section ---- */
+/* The universal reset above (* { margin: 0; padding: 0 }) zeroes defaults
+   for p / ul / ol / li / h3 / h4. Add back readable rhythm scoped to
+   .section so these only affect report body prose, not header/KPI/table
+   internals. */
+.section p,
+.section li { line-height: 1.6; }
+.section p { margin-bottom: 0.75rem; }
+.section p:last-child { margin-bottom: 0; }
+.section ul,
+.section ol { padding-left: 1.5rem; margin: 0 0 0.75rem; }
+.section li { margin-bottom: 0.25rem; }
+.section li:last-child { margin-bottom: 0; }
+
+.section h3 {
+  font-size: 1rem; font-weight: 600; color: var(--zinc-900);                   /* 16px */
+  margin: 1.5rem 0 0.5rem;
+}
+.section h4 {
+  font-size: 0.9375rem; font-weight: 600; color: var(--zinc-800);              /* 15px */
+  margin: 1.25rem 0 0.4rem;
+}
+
+/* ---- Cost-line subsection divider (opt-in via class) ---- */
+/* Used by recommendations that group findings per cost line. Each cost
+   line sits in its own <div class="cost-line"> and gets a visual break
+   between siblings. First instance in its parent has no top divider. */
+.cost-line { padding: 1rem 0 0.5rem; margin-top: 1.5rem; border-top: 2px solid var(--zinc-200); }
+.cost-line:first-of-type { border-top: 0; margin-top: 0; padding-top: 0.25rem; }
+.cost-line > h3 { margin-top: 0; }
+
+/* ---- Recommendation cards ----
+   One action (one lever) per card. A heading alone does not work here: `.section h4`
+   is 15px while body copy is 16px, so a recommendation titled with a heading renders
+   SMALLER than the prose beneath it and disappears into the page. The card carries the
+   status in three places a reader sees before reading any text: the left accent colour,
+   the verdict badge, and the saving figure. Use for any "here is what to do" item. */
+.rec {
+  background: var(--white);
+  border: 1px solid var(--zinc-200);
+  border-left: 4px solid var(--zinc-300);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 20px;
+  margin: 16px 0;
+}
+.rec--quantified { border-left-color: var(--green-500); }
+.rec--scoped     { border-left-color: var(--amber-500); }
+.rec--done       { border-left-color: var(--zinc-300); background: var(--zinc-50); box-shadow: none; }
+.rec--critical   { border-left-color: var(--red-500); }
+
+.rec-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  padding-bottom: 12px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--zinc-100);
+}
+.rec-headline { flex: 1 1 320px; min-width: 0; }
+.rec-title {
+  font-size: 1.0625rem; font-weight: 600; line-height: 1.35;                   /* 17px */
+  color: var(--zinc-900);
+}
+.rec-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.rec-figure { text-align: right; white-space: nowrap; }
+.rec-figure .amount {
+  display: block; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; /* 24px */
+  color: var(--green-600); font-variant-numeric: tabular-nums;
+}
+.rec-figure .caption { display: block; font-size: 0.6875rem; color: var(--zinc-500); }  /* 11px */
+.rec--done   .rec-figure .amount { color: var(--zinc-400); }
+.rec--scoped .rec-figure .amount { color: var(--amber-600); font-size: 1.125rem; }      /* 18px */
+
+/* Labelled sub-blocks inside a card */
+.rec-label {
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em;              /* 11px */
+  text-transform: uppercase; color: var(--zinc-500);
+  margin: 14px 0 6px;
+}
+.rec-body > .rec-label:first-child { margin-top: 0; }
+.rec-evidence { font-size: 0.9375rem; color: var(--zinc-700); }                /* 15px */
+.rec-evidence li { margin-bottom: 0.3rem; }
+
+/* The action block: what the reader should actually do. Tinted so it reads last and loudest. */
+.rec-action {
+  background: var(--blue-50); border-left: 3px solid var(--blue-500);
+  border-radius: var(--radius-md); padding: 12px 14px; margin-top: 14px;
+}
+.rec-action .rec-label { color: var(--blue-600); margin-top: 0; }
+.rec-action p:last-child { margin-bottom: 0; }
+
+/* A caveat that changes whether the action works at all (wrong-target warnings). */
+.rec-warn {
+  background: var(--amber-50); border-left: 3px solid var(--amber-500);
+  border-radius: var(--radius-md); padding: 12px 14px; margin-top: 14px;
+  font-size: 0.9375rem;                                                        /* 15px */
+}
+.rec-warn .rec-label { color: var(--amber-600); margin-top: 0; }
+.rec-warn p:last-child { margin-bottom: 0; }
+
+.rec .data-table { margin-top: 4px; }
+.rec ul:last-child, .rec p:last-child { margin-bottom: 0; }
+
 /* ---- Tables ---- */
 .data-table {
   width: 100%; border-collapse: collapse; background: var(--white);
@@ -176,4 +278,6 @@ details p, details pre { color: var(--zinc-600); font-size: 0.875rem; }       /*
   .data-table thead { display: table-header-group; }
   tr, details { break-inside: avoid; }
   details[open] > summary { break-after: avoid; }
+  .rec { box-shadow: none; break-inside: avoid; }
+  .rec-head { break-after: avoid; }
 }

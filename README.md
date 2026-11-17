@@ -22,6 +22,7 @@ Each sweep finds:
 - **ElastiCache end-of-support** - Redis OSS engine version risk, upgrade targets, Extended Support cost exposure
 - **Security posture** - org-wide A-F scorecard across threat detection, identity, data protection, logging, network, and compliance
 - **EC2 compute hygiene** - Assess EC2 fleet health across accounts in the organization. Evaluates instance generation, rightsizing
+- **Cost optimization** - what drives spend by usage type, the levers available for that specific product grounded in AWS documentation and the Price List API, and which of them actually apply to your resources
 
 Want the deeper explanation of how it works? See [docs/what-is-corgiro.md](docs/what-is-corgiro.md).
 
@@ -71,6 +72,7 @@ Check which accounts are reachable:
 | [`/corgiro bedrock-model-lifecycle`](skills/corgiro/modes/bedrock-model-lifecycle/) | Bedrock model lifecycle analysis — identify deprecated or soon-to-be-deprecated models, which accounts still use them, and which inference profiles reference them.                                                              |
 | [`/corgiro ri-sp-coverage-analysis`](skills/corgiro/modes/ri-sp-coverage-analysis/) | Reserved Instance and Savings Plans coverage analysis — spend decomposition, coverage, utilization, purchase recommendations, and expiring commitments across the org (payer-scoped).                                             |
 | [`/corgiro eks-ingress-migration`](skills/corgiro/modes/eks-ingress-migration/)     | Org-wide EKS ingress migration triage — discovers clusters across accounts/regions, detects EKS Auto Mode, and classifies each cluster's ingress exposure from AWS load balancer tags (NGINX front vs AWS Load Balancer Controller ALB vs Auto Mode managed) to prioritize migration off NGINX and point each at the right path (Gateway API + lbc-migrate toolkit, ALB/LBC Ingress, or AWS Transform/ATX).                       |
+| [`/corgiro cost-optimization-review`](skills/corgiro/modes/cost-optimization-review/) | Cost optimization driven by what actually costs money. Ranks spend by usage type from Cost Explorer, decodes each usage-type code against the Price List Query API rather than assuming what it means, researches that product's levers from AWS documentation, and confirms which apply against live resource configuration and metrics. Every recommendation carries its evidence, levers already implemented are reported as such, and where a premise cannot be verified the recommendation opens with the step that verifies it. |
 | [`/corgiro ask <question>`](skills/corgiro/modes/ask/)                          | Ad-hoc org-wide questions — plans read-only AWS CLI calls from your natural-language question, shows the plan for approval (accounts, regions, call budget), fans out across all reachable accounts, and answers inline from live API data. Save a good run as a permanent mode via `mode-builder`. |
 | [`/corgiro mode-builder`](skills/corgiro/modes/mode-builder/)                   | Interactive workflow to create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing.                                                                                                  |
 
@@ -109,6 +111,7 @@ skills/
     │   ├── cross-account-defaults.md     ← shared config defaults
     │   ├── credential-resolution.md      ← per-account credential dispatch
     │   ├── aws-version-lifecycle.md      ← EOL date scraping reference
+    │   ├── aws-pricing-grounding.md      ← usage-type decode + price grounding
     │   └── report-format.md              ← shared report structure + theme
     ├── assets/
     │   ├── corgiro-readonly-role.yaml    ← CloudFormation template (Option B)
@@ -131,6 +134,11 @@ skills/
         │   └── MODE.md
         ├── eks-ingress-migration/
         │   └── MODE.md
+        ├── cost-optimization-review/
+        │   ├── MODE.md
+        │   └── references/
+        │       ├── access-pattern.md     ← CE source tiers + credential rules
+        │       └── step-2…6-*.md         ← scope, spend, decode, research, confirm
         ├── mode-builder/
         │   ├── MODE.md
         │   └── references/

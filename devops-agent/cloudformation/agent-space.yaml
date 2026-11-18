@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::LanguageExtensions
+Description: >
+  Corgiro - greenfield AWS DevOps Agent Agent Space. Creates the Agent Space,
+  the operator app role, the "monitor" association for this account, and one
+  "source" association per member account. Deploy as a SINGLE stack in the
+  primary account only, never via StackSet.
+
+  Requires 1-member-role.yaml deployed in this account and in every account in
+  MemberAccountIds, and iam:PassRole on the role wildcard in this account.
+  Deleting this stack deletes the Agent Space and all of its data.
+
+# PREREQUISITE 1 - template 1 must already be deployed in THIS account AND in
+# every account listed in MemberAccountIds. An association whose target role is
+# missing, or whose trust does not admit this Agent Space, never reaches status
+# "valid". Deploy the StackSet first.
+#
+# PREREQUISITE 2 - the deploying principal needs iam:PassRole on
+# arn:aws:iam::<this-account>:role/* with condition
+# iam:PassedToService = aidevops.amazonaws.com. It must be the role WILDCARD; a
+# policy scoped to individual role ARNs does not satisfy the service check, and
+# the request fails with a 403 naming iam:PassRole even if the principal holds
+# aidevops:*. The check re-runs on every association create AND update.
+#
+# CAPABILITIES - CAPABILITY_NAMED_IAM and CAPABILITY_AUTO_EXPAND.
+#
+# WARNING - deleting this stack deletes the Agent Space, and that destroys
+# everything in it: investigations, memories, assets and history. Removing an
+# account from MemberAccountIds only removes that association, which is safe.
+#
+# NOTE - CloudFormation caps the template Description at 1024 characters, and
+# the limit is enforced during transform processing rather than by
+# validate-template, so an over-long Description fails at create time with
+# "Template format error: 'Description' length is greater than 1024". Keep the
+# Description short and put detail in comments like these.
+
+Parameters:
+  MemberAccountIds:
+    Type: CommaDelimitedList
+    Description: >
+      REQUIRED. Comma-separated 12-digit account IDs to connect as "source"
+      accounts - the accounts you want Corgiro to review.
+
+      Do NOT include this (primary) account. It is wired up separately as the
+      "monitor" association below.
+
+      At least one account is required: Fn::ForEach cannot iterate an empty
+      list, and a Corgiro Agent Space with no member accounts has nothing
+      org-wide to review.
+
+      Every account listed here must already have 1-member-role.yaml deployed,
+      with AgentSpacePrimaryAccountId pointing at this account. Associations
+      whose target role is missing, or whose trust does not admit this Agent
+      Space, never reach status "valid".
+
+  MemberRoleName:
+    Type: String
+    Description: >
+      REQUIRED to match the RoleName you used in 1-member-role.yaml. The default
+      is correct only if you left RoleName at its default too.
+
+      The same role name must exist in the primary account and in every account
+      listed in MemberAccountIds, which a StackSet guarantees.
+    Default: CorgiroReadOnlyRole
+
+  AgentSpaceName:
+    Type: String
+    Description: >
+      OPTIONAL. Name of the Agent Space to create. Also used as the prefix for
+      the operator app role name, "<AgentSpaceName>-operator-app".
+    Default: corgiro-agent-space
+
+  AgentSpaceDescription:
+    Type: String
+    Description: >
+      OPTIONAL. Description shown on the Agent Space in the console.
+    Default: Dedicated to Corgiro AWS Cloud Operations reviews.
+
+
+Resources:
+  # Operator app role - used by humans in the DevOps Agent web app. This is NOT
+  # a resource-read role and cannot be the Corgiro role: it carries
+  # AIDevOpsOperatorAppAccessPolicy and its trust additionally needs
+  # sts:TagSession.
+  #
+  # The console pins this role's trust with ArnEquals on the exact Agent Space
+  # ARN, but CloudFormation cannot express that: the space validates this role's
+  # trust policy at create time, while the exact ARN is not known until the space
+  # exists. We therefore use ArnLike with agentspace/*, scoped to this account
+  # and region - the same condition shape AWS provisions for the agent space
+  # role. Deliberate, documented deviation from console output.
+  OperatorAppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AgentSpaceName}-operator-app"
+      MaxSessionDuration: 3600
+      Description: >-
+        Operator app role for the Corgiro DevOps Agent Space. Grants humans
+        access to the Operator Web App; grants no access to customer resources.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAWSDevOpsAgentOperatorApp
+            Effect: Allow
+            Principal:
+              Service: aidevops.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref "AWS::AccountId"
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:aidevops:${AWS::Region}:${AWS::AccountId}:agentspace/*"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AIDevOpsOperatorAppAccessPolicy"
+      Tags:
+        - Key: app
+          Value: corgiro
+        - Key: managed-by
+          Value: cloudformation
+        - Key: project
+          Value: corgiro-devops-agent
+
+  AgentSpace:
+    Type: AWS::DevOpsAgent::AgentSpace
+    Properties:
+      Name: !Ref AgentSpaceName
+      Description: !Ref AgentSpaceDescription
+      OperatorApp:
+        Iam:
+          OperatorAppRoleArn: !GetAtt OperatorAppRole.Arn
+      # Preferences is deliberately omitted. Supplying it would replace stored
+      # preferences wholesale, and its only member - ElevatedActionsEnabled - is
+      # the switch that permits the agent to take mutating directed actions.
+      # Omitting the container leaves service defaults in place.
+      Tags:
+        - Key: app
+          Value: corgiro
+        - Key: managed-by
+          Value: cloudformation
+        - Key: project
+          Value: corgiro-devops-agent
+
+  # The primary account monitors itself. The "Aws" configuration shape restricts
+  # AccountType to "monitor"; member accounts use "SourceAws" with "source".
+  #
+  # AgentElevatedRoleArn is deliberately omitted here and on every source
+  # association below - that is the role the agent would assume to perform
+  # mutating directed actions.
+  MonitorAssociation:
+    Type: AWS::DevOpsAgent::Association
+    Properties:
+      AgentSpaceId: !GetAtt AgentSpace.AgentSpaceId
+      ServiceId: aws
+      Configuration:
+        Aws:
+          AccountId: !Ref "AWS::AccountId"
+          AccountType: monitor
+          AssumableRoleArn: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${MemberRoleName}"
+
+  # One association per member account, generated from MemberAccountIds so that
+  # adding an account is a parameter change rather than a new resource block.
+  #
+  # Resources and Tags are also available on this shape to narrow which
+  # resources the agent sees per account. Left unset so the agent sees whatever
+  # the role's IAM policies permit, which is already bounded by ReadOnlyAccess
+  # plus the DataPlaneDeny policy plus the service's own permission guardrail.
+  #
+  # NOTE: this does not self-heal for new org accounts. The StackSet in template
+  # 1 auto-deploys the role to accounts added to the target OU, but each new
+  # account still needs an entry here. To keep org-wide coverage declarative,
+  # generate MemberAccountIds from organizations:ListAccounts in your pipeline.
+  "Fn::ForEach::SourceAssociations":
+    - AccountId
+    - !Ref MemberAccountIds
+    - "SourceAssociation${AccountId}":
+        Type: AWS::DevOpsAgent::Association
+        Properties:
+          AgentSpaceId: !GetAtt AgentSpace.AgentSpaceId
+          ServiceId: aws
+          Configuration:
+            SourceAws:
+              AccountId: !Ref AccountId
+              AccountType: source
+              AssumableRoleArn: !Sub "arn:${AWS::Partition}:iam::${AccountId}:role/${MemberRoleName}"
+
+Outputs:
+  AgentSpaceId:
+    Description: Agent Space ID.
+    Value: !GetAtt AgentSpace.AgentSpaceId
+    Export:
+      Name: !Sub "${AWS::StackName}-AgentSpaceId"
+
+  AgentSpaceArn:
+    Description: >
+      Agent Space ARN. Optionally feed this back into template 1 as AgentSpaceArn
+      to tighten member-account trust from the agentspace/* wildcard down to this
+      one space. Doing so makes the StackSet depend on this stack, so only do it
+      once the space is stable.
+    Value: !GetAtt AgentSpace.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-AgentSpaceArn"
+
+  OperatorAppRoleArn:
+    Description: ARN of the operator app role.
+    Value: !GetAtt OperatorAppRole.Arn
+
+  MonitorAssociationId:
+    Description: Association ID for the primary account.
+    Value: !GetAtt MonitorAssociation.AssociationId
+
+  "Fn::ForEach::SourceAssociationOutputs":
+    - AccountId
+    - !Ref MemberAccountIds
+    - "SourceAssociation${AccountId}Id":
+        Description: !Sub "Association ID for member account ${AccountId}"
+        Value: !GetAtt
+          - !Sub "SourceAssociation${AccountId}"
+          - AssociationId

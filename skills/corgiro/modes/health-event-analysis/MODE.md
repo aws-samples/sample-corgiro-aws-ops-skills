@@ -86,7 +86,7 @@ Aggregate findings, apply risk scoring, detect patterns, then render the report 
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── accounts.json
 ├── events/event_index.json

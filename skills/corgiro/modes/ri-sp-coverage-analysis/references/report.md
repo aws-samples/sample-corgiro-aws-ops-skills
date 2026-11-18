@@ -96,7 +96,7 @@ If `expiring.counts_by_bucket` totals zero, replace the table with: "No commitme
 
 - Inline the CSS placeholder and logo data URI via the Python injection step in `report-format.md` rule 9 — never hand-transcribe them.
 - HTML-entity-escape every string from AWS output (subscription IDs, service names, region strings) before inserting into the HTML. Truncate to 256 raw characters first, then escape (`&` → `&amp;` first, then `<`, `>`, `"`, `'`), then wrap in code / literal formatting.
-- After writing HTML, `chmod 700 ./<run_dir>` and `chmod 600 ./<run_dir>/*`, then `open ./<run_dir>/RI-SP-Coverage-<DATE>.html`.
+- After writing HTML, `chmod 700 <run_dir>` and `chmod 600 <run_dir>/*`, then `open <run_dir>/RI-SP-Coverage-<DATE>.html`.
 - Verify logo landed intact: `grep -c 'src="data:image/png;base64,iVBOR' <run_dir>/RI-SP-Coverage-<DATE>.html` should return `1`.
 
 ## Markdown sibling

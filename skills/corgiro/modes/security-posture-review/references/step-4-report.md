@@ -23,5 +23,5 @@ Honor `output_format` (`markdown` | `html` | `both`). Map risk tiers, enabled/OK
 ## Finish
 
 1. Inject the CSS and logo per report-format.md Rule 9 (placeholder injection), then verify the logo landed (`grep -c` check).
-2. Secure the run directory: `chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*`.
-3. `open ./<run_id>/Security-Posture-Review-<DATE>.html`.
+2. Secure the run directory: `chmod 700 <run_dir>` and `chmod 600 <run_dir>/*`.
+3. `open <run_dir>/Security-Posture-Review-<DATE>.html`.

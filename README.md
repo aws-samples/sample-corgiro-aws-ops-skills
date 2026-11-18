@@ -32,6 +32,11 @@ Reviewing Corgiro before you approve it? [docs/how-corgiro-accesses-your-account
 
 ## Quickstart
 
+> Corgiro runs in two places. The Quickstart below is the **local** path: the
+> skill in your own AI agent, sweeping the org from your workstation. It can
+> also run unattended inside an **AWS DevOps Agent** Agent Space - see
+> [Running on AWS DevOps Agent](#running-on-aws-devops-agent).
+
 ### Install the skill
 
 ```bash
@@ -75,6 +80,40 @@ Check which accounts are reachable:
 | [`/corgiro cost-optimization-review`](skills/corgiro/modes/cost-optimization-review/) | Cost optimization driven by what actually costs money. Ranks spend by usage type from Cost Explorer, decodes each usage-type code against the Price List Query API rather than assuming what it means, researches that product's levers from AWS documentation, and confirms which apply against live resource configuration and metrics. Every recommendation carries its evidence, levers already implemented are reported as such, and where a premise cannot be verified the recommendation opens with the step that verifies it. |
 | [`/corgiro ask <question>`](skills/corgiro/modes/ask/)                          | Ad-hoc org-wide questions — plans read-only AWS CLI calls from your natural-language question, shows the plan for approval (accounts, regions, call budget), fans out across all reachable accounts, and answers inline from live API data. Save a good run as a permanent mode via `mode-builder`. |
 | [`/corgiro mode-builder`](skills/corgiro/modes/mode-builder/)                   | Interactive workflow to create custom Corgiro modes for your org — ideation, AWS API discovery, drafting, validation, and testing.                                                                                                  |
+
+## Running on AWS DevOps Agent
+
+The same modes can run inside an [AWS DevOps Agent](https://aws.amazon.com/devops-agent/)
+Agent Space instead of on your workstation. Useful when you want the sweeps to
+run unattended, or without every operator installing the skill locally.
+
+| | Local (Quickstart above) | AWS DevOps Agent |
+|---|---|---|
+| Runs | your AI agent, on your workstation | an Agent Space, on demand or scheduled |
+| Credentials | you assume the member role | the service assumes it per account |
+| Setup | `/corgiro setup-corgiro` | the scripts in `devops-agent/` |
+| Output | self-contained HTML report | DevOps Agent artifact |
+
+Setup is script-based rather than a Corgiro mode, so you do not need to run
+Corgiro locally in order to configure it:
+
+```bash
+cd devops-agent
+
+# member role (StackSet) + Agent Space + associations
+TOOLING_PROFILE=<profile> TARGET_OU_IDS=<ou-or-root-id> ./scripts/deploy-infra.sh
+
+# skill + custom agent
+TOOLING_PROFILE=<profile> ./scripts/deploy-assets.sh
+```
+
+Both are dry run by default and show a plan before asking to apply.
+
+The member role is the same `corgiro-readonly-role.yaml` the local path uses,
+deployed with its Agent Space parameters set, so the read-only boundary and its
+explicit deny list are identical on both paths.
+
+Full instructions, prerequisites and trade-offs: **[devops-agent/README.md](devops-agent/README.md)**.
 
 ## Install
 
@@ -145,6 +184,18 @@ skills/
         │       ├── mode-template.md
         │       └── validation-checklist.md
         └── ...                           ← more modes
+
+devops-agent/                             ← AWS DevOps Agent target (optional)
+├── README.md                             ← setup, prerequisites, trade-offs
+├── cloudformation/
+│   └── agent-space.yaml                  ← Agent Space + account associations
+├── custom-agent/
+│   ├── corgiro-agent-prompt.md           ← custom agent system prompt
+│   └── SETUP.md                           ← creating it by hand, tool selection
+└── scripts/
+    ├── deploy-infra.sh                   ← member role (StackSet) + Agent Space
+    ├── deploy-assets.sh                  ← skill + custom agent
+    └── validate.sh                       ← read-only verification
 ```
 
 ## Contributing

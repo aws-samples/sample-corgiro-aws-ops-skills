@@ -1,26 +1,73 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Corgiro - per-account read-only role (CorgiroReadOnlyRole).
-  Deployed to every member account via a service-managed StackSet from the
-  management account. Trusted only by the Corgiro operator identity in the
-  tooling account - the CorgiroOperator Identity Center permission set, and/or
-  an external-IdP role named by OperatorRoleName - gated by an external ID.
+  Corgiro - per-account read-only role (CorgiroReadOnlyRole), deployed to every
+  member account via a service-managed StackSet from the management account.
+
+  Carries up to two independent trust paths, each switched on by one parameter:
+  ToolingAccountId for the local CLI target (deployed by setup-corgiro), and
+  AgentSpacePrimaryAccountId for the AWS DevOps Agent target (deployed by the
+  scripts under devops-agent/). Set either or both; the Rules section rejects
+  "neither", which would produce a role nothing can assume.
+
+  Leaving AgentSpacePrimaryAccountId empty renders exactly the role Corgiro has
+  always deployed.
+
+# Trust path matrix
+#
+#   ToolingAccountId  AgentSpacePrimaryAccountId  -> resulting role
+#   ----------------  --------------------------     --------------------------
+#   set               empty                          local CLI only; identical
+#                                                    to the pre-DevOps-Agent
+#                                                    template
+#   set               set                            both targets on one role.
+#                                                    Possible, but it costs
+#                                                    CloudTrail attribution -
+#                                                    the role ARN no longer
+#                                                    tells you which consumer
+#                                                    made a call - and it
+#                                                    attaches the DevOps Agent
+#                                                    policy to the CLI path.
+#                                                    Prefer two StackSets with
+#                                                    distinct RoleName values.
+#   empty             set                            DevOps Agent only
+#   empty             empty                          rejected by Rules
+#
+# CloudFormation caps this Description at 1024 characters, and enforces it at
+# create time rather than in validate-template, so keep it short and put detail
+# in comments like these.
 
 Parameters:
   ToolingAccountId:
     Type: String
     Description: >
-      Account ID of the Corgiro tooling account where CorgiroOperator is
-      provisioned by IAM Identity Center.
-    AllowedPattern: "^[0-9]{12}$"
-    ConstraintDescription: Must be a 12-digit AWS account ID.
+      REQUIRED for the local CLI target. Account ID of the Corgiro tooling
+      account where CorgiroOperator is provisioned by IAM Identity Center.
+
+      Leave EMPTY for a DevOps-Agent-only role, which omits the operator trust
+      statement entirely and makes ExternalId, PermissionSetNamePrefix and
+      OperatorRoleName irrelevant. If you leave it empty,
+      AgentSpacePrimaryAccountId must be set.
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{12}$"
+    ConstraintDescription: Must be empty or a 12-digit AWS account ID.
 
   ExternalId:
     Type: String
     Description: >
-      Shared secret required on sts:AssumeRole. Must match the externalId
-      value configured in ~/.corgiro/config.json.
-    MinLength: 8
+      REQUIRED whenever ToolingAccountId is set; enforced by the
+      ExternalIdRequiredWithToolingAccount rule. Shared secret required on
+      sts:AssumeRole. Must match the externalId value configured in
+      ~/.corgiro/config.json. Use at least 8 characters.
+
+      Not used by the DevOps Agent trust path, which gets confused-deputy
+      protection from aws:SourceAccount and aws:SourceArn instead - both
+      injected by AWS and therefore unforgeable, unlike a shared value.
+
+      NOTE: a minimum length cannot be enforced here, because the field has to
+      accept empty for the DevOps-Agent-only case and CloudFormation cannot
+      validate length conditionally.
+    Default: ""
+    MinLength: 0
     MaxLength: 128
     NoEcho: true
 
@@ -67,6 +114,80 @@ Parameters:
     MinValue: 900
     MaxValue: 43200
 
+  AgentSpacePrimaryAccountId:
+    Type: String
+    Description: >
+      REQUIRED for the DevOps Agent target. Account ID hosting the Agent Space
+      (its "monitor" or primary account). Setting this adds a second trust
+      statement for aidevops.amazonaws.com, attaches AIDevOpsAgentAccessPolicy,
+      and grants the Resource Explorer service-linked-role permission that
+      topology discovery needs.
+
+      Leave EMPTY for the local CLI target only.
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{12}$"
+    ConstraintDescription: Must be empty or a 12-digit AWS account ID.
+
+  AgentSpaceRegion:
+    Type: String
+    Description: >
+      REQUIRED when AgentSpacePrimaryAccountId is set and AgentSpaceArn is
+      empty, which is the normal case, because the wildcard aws:SourceArn is
+      region-qualified. IAM is global, so this is NOT the StackSet's region -
+      it is the region the Agent Space lives in.
+    Default: ""
+
+  AgentSpaceArn:
+    Type: String
+    Description: >
+      OPTIONAL. Full ARN of one specific Agent Space. Empty trusts any Agent
+      Space in AgentSpacePrimaryAccountId and AgentSpaceRegion, via
+      arn:...:agentspace/*.
+
+      It cannot be set on a first deploy: the role must exist before an
+      association can reference it, and the space must exist before its ARN
+      does. Reaching a pinned state therefore takes three passes - deploy with
+      this empty, create the space, then update the StackSet with the ARN.
+
+      Normally leave it empty. aws:SourceAccount already blocks every other AWS
+      account, so pinning only guards against a second Agent Space inside your
+      own primary account; restricting aidevops:CreateAgentSpace there is one
+      control instead of one per member account, and it survives the space
+      being recreated, which a pinned ARN does not.
+    Default: ""
+
+Rules:
+  # Catch invalid parameter combinations at deploy time rather than producing a
+  # role that is silently unassumable.
+  ExternalIdRequiredWithToolingAccount:
+    RuleCondition: !Not [!Equals [!Ref ToolingAccountId, ""]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ExternalId, ""]]
+        AssertDescription: >-
+          ExternalId is required whenever ToolingAccountId is set. It must match
+          the externalId in ~/.corgiro/config.json.
+
+  AtLeastOneTrustPath:
+    Assertions:
+      - Assert: !Or
+          - !Not [!Equals [!Ref ToolingAccountId, ""]]
+          - !Not [!Equals [!Ref AgentSpacePrimaryAccountId, ""]]
+        AssertDescription: >-
+          Set ToolingAccountId (local CLI target), or
+          AgentSpacePrimaryAccountId (DevOps Agent target), or both. With
+          neither, nothing could assume the role.
+
+  AgentSpaceRegionRequiredWhenNotPinned:
+    RuleCondition: !And
+      - !Not [!Equals [!Ref AgentSpacePrimaryAccountId, ""]]
+      - !Equals [!Ref AgentSpaceArn, ""]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref AgentSpaceRegion, ""]]
+        AssertDescription: >-
+          AgentSpaceRegion is required when AgentSpacePrimaryAccountId is set
+          and AgentSpaceArn is empty, because the wildcard aws:SourceArn is
+          region-qualified.
+
 Conditions:
   # Emit the Identity Center principals unless the operator explicitly opted
   # out. Default PermissionSetNamePrefix is CorgiroOperator, so this is true
@@ -75,6 +196,19 @@ Conditions:
 
   # Emit the external-IdP operator role only when one was supplied.
   HasSamlOperator: !Not [!Equals [!Ref OperatorRoleName, ""]]
+
+  # Emit the Corgiro operator trust statement only when a tooling account is
+  # named. Empty means a DevOps-Agent-only role with no local CLI access.
+  HasCorgiroOperator: !Not [!Equals [!Ref ToolingAccountId, ""]]
+
+  # Emit the DevOps Agent trust statement, AIDevOpsAgentAccessPolicy and the
+  # Resource Explorer service-linked-role grant only when a primary account is
+  # named. Empty renders the role exactly as Corgiro has always deployed it.
+  HasAgentSpace: !Not [!Equals [!Ref AgentSpacePrimaryAccountId, ""]]
+
+  # An explicit ARN pins the trust to one space; otherwise fall back to the
+  # account- and region-scoped wildcard.
+  HasExactAgentSpaceArn: !Not [!Equals [!Ref AgentSpaceArn, ""]]
 
 Resources:
   CorgiroDataPlaneDenyPolicy:
@@ -136,58 +270,124 @@ Resources:
       RoleName: !Ref RoleName
       MaxSessionDuration: !Ref MaxSessionDurationSeconds
       Description: >-
-        Read-only role assumed by Corgiro (AWS Cloud Operations Assistant)
-        from the tooling account for cross-account inspection.
+        Read-only role assumed by Corgiro (AWS Cloud Operations Assistant) for
+        cross-account inspection - from the tooling account by the local CLI,
+        and/or by AWS DevOps Agent on behalf of an Agent Space.
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: AllowCorgiroOperatorFromTooling
-            Effect: Allow
-            Principal:
-              AWS: !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:root"
-            Action: sts:AssumeRole
-            Condition:
-              ArnLike:
-                # Narrows the tooling-account root principal above to just the
-                # Corgiro operator identity. Which principals are emitted
-                # depends on the two Conditions:
-                #
-                #   PermissionSetNamePrefix  OperatorRoleName  -> principals
-                #   CorgiroOperator (default) ""      (default)   2 (IdC only)
-                #   CorgiroOperator           MyRole             3 (both)
-                #   ""                        MyRole             1 (SAML only)
-                #   ""                        ""                 0 -> fails closed
-                #
-                # Identity Center provisions roles as either:
-                # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<name>_<hash>
-                # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_<name>_<hash>
-                aws:PrincipalArn: !If
-                  - HasIdcOperator
-                  - !If
-                    - HasSamlOperator
-                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
-                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
-                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
-                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
-                      - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
-                  - !If
-                    - HasSamlOperator
-                    - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
-                    # Both parameters empty: no operator principal is trusted, so
-                    # the role becomes unassumable. This is deliberate - it fails
-                    # closed rather than widening the trust to the tooling
-                    # account root. Expect the deploy itself to reject the empty
-                    # condition value; do not "fix" it by removing the ArnLike.
-                    - []
-              StringEquals:
-                sts:ExternalId: !Ref ExternalId
+          # Local CLI target. Omitted entirely when ToolingAccountId is empty,
+          # which yields a DevOps-Agent-only role.
+          - !If
+            - HasCorgiroOperator
+            - Sid: AllowCorgiroOperatorFromTooling
+              Effect: Allow
+              Principal:
+                AWS: !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:root"
+              Action: sts:AssumeRole
+              Condition:
+                ArnLike:
+                  # Narrows the tooling-account root principal above to just the
+                  # Corgiro operator identity. Which principals are emitted
+                  # depends on the two Conditions:
+                  #
+                  #   PermissionSetNamePrefix  OperatorRoleName  -> principals
+                  #   CorgiroOperator (default) ""      (default)   2 (IdC only)
+                  #   CorgiroOperator           MyRole             3 (both)
+                  #   ""                        MyRole             1 (SAML only)
+                  #   ""                        ""                 0 -> fails closed
+                  #
+                  # Identity Center provisions roles as either:
+                  # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/<region>/AWSReservedSSO_<name>_<hash>
+                  # arn:aws:iam::<account>:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_<name>_<hash>
+                  aws:PrincipalArn: !If
+                    - HasIdcOperator
+                    - !If
+                      - HasSamlOperator
+                      - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                        - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                        - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
+                      - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                        - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${PermissionSetNamePrefix}_*"
+                    - !If
+                      - HasSamlOperator
+                      - - !Sub "arn:${AWS::Partition}:iam::${ToolingAccountId}:role/${OperatorRoleName}"
+                      # Both parameters empty: no operator principal is trusted, so
+                      # the role becomes unassumable. This is deliberate - it fails
+                      # closed rather than widening the trust to the tooling
+                      # account root. Expect the deploy itself to reject the empty
+                      # condition value; do not "fix" it by removing the ArnLike.
+                      - []
+                StringEquals:
+                  sts:ExternalId: !Ref ExternalId
+            - !Ref "AWS::NoValue"
+
+          # DevOps Agent target. The service assumes this role DIRECTLY via its
+          # service principal - it does not chain through the primary account -
+          # so confused-deputy protection comes from the two source conditions
+          # rather than from an external ID.
+          #
+          # ArnLike rather than StringEquals because an ARN with no wildcard
+          # behaves as an exact match under ArnLike, letting one statement serve
+          # both the pinned and the wildcard mode. AWS itself provisions ArnLike
+          # with agentspace/* for the Agent Space role it creates.
+          - !If
+            - HasAgentSpace
+            - Sid: AllowAWSDevOpsAgentForAgentSpace
+              Effect: Allow
+              Principal:
+                Service: aidevops.amazonaws.com
+              Action: sts:AssumeRole
+              Condition:
+                StringEquals:
+                  aws:SourceAccount: !Ref AgentSpacePrimaryAccountId
+                ArnLike:
+                  aws:SourceArn: !If
+                    - HasExactAgentSpaceArn
+                    - !Ref AgentSpaceArn
+                    - !Sub "arn:${AWS::Partition}:aidevops:${AgentSpaceRegion}:${AgentSpacePrimaryAccountId}:agentspace/*"
+            - !Ref "AWS::NoValue"
+
       ManagedPolicyArns:
         # Broad read baseline. We keep ReadOnlyAccess for low maintenance
         # (new read-only modes work without redeploying the StackSet) and
         # layer an explicit Deny (as a customer-managed policy) below to
         # remove sensitive data-plane reads.
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/ReadOnlyAccess"
+        # Required by AWS DevOps Agent. Adds actions a read-only baseline cannot
+        # grant - cloudtrail:StartQuery, support:CreateCase and similar - and is
+        # what the service's own console flow attaches. Harmless on the local
+        # CLI path, which never calls them.
+        #
+        # Note the service also applies a permission guardrail: a session policy
+        # at assume-role time whose ceiling is ReadOnlyAccess plus this policy
+        # plus athena:StartQueryExecution, athena:StopQueryExecution and
+        # kms:Decrypt. Effective permissions are the intersection, and writes
+        # outside that set are blocked however the role is written.
+        - !If
+          - HasAgentSpace
+          - !Sub "arn:${AWS::Partition}:iam::aws:policy/AIDevOpsAgentAccessPolicy"
+          - !Ref "AWS::NoValue"
         - !Ref CorgiroDataPlaneDenyPolicy
+
+      # Mirrors the inline policy the DevOps Agent console provisions for a
+      # secondary account. Resource Explorer backs discovery of resources that
+      # were not deployed by CloudFormation, and its service-linked role has to
+      # be creatable for topology discovery to work.
+      Policies: !If
+        - HasAgentSpace
+        - - PolicyName: AllowCreateServiceLinkedRoles
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Sid: AllowCreateServiceLinkedRoles
+                  Effect: Allow
+                  Action:
+                    - iam:CreateServiceLinkedRole
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+        - !Ref "AWS::NoValue"
+
       Tags:
         - Key: app
           Value: corgiro
@@ -197,6 +397,15 @@ Resources:
           Value: corgiro-stackset
 
 Outputs:
+  TrustPaths:
+    Description: >
+      Which trust paths this role carries, so a StackSet operation can be
+      spot-checked without reading the policy document.
+    Value: !If
+      - HasCorgiroOperator
+      - !If [HasAgentSpace, "corgiro-operator + devops-agent", "corgiro-operator"]
+      - !If [HasAgentSpace, "devops-agent", "none (invalid)"]
+
   RoleArn:
     Description: ARN of the Corgiro read-only role in this member account.
     Value: !GetAtt CorgiroReadOnlyRole.Arn

@@ -18,7 +18,15 @@ set -euo pipefail
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 : "${TOOLING_PROFILE:?set TOOLING_PROFILE (a profile for the Tooling Account)}"
 PROFILE="$TOOLING_PROFILE"
-REGION="${REGION:-us-east-1}"
+# No default: inspecting the wrong region silently reports on a different,
+# parallel deployment. Take the profile's own region, and stop if it has none.
+REGION="${REGION:-$(aws configure get region --profile "$PROFILE" 2>/dev/null || echo '')}"
+if [[ -z "$REGION" ]]; then
+  echo "Cannot determine the region." >&2
+  echo "  Profile '${PROFILE}' has no region configured. Either set REGION=<region>" >&2
+  echo "  for this run, or: aws configure set region <region> --profile ${PROFILE}" >&2
+  exit 1
+fi
 # Default matches what deploy-infra.sh creates. The bare "CorgiroReadOnlyRole"
 # is Corgiro's local-CLI role, so defaulting to it would silently inspect the
 # wrong role and report a missing deny policy.

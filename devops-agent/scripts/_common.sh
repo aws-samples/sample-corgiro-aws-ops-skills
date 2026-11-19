@@ -5,6 +5,50 @@
 
 # --------------------------------------------------------------------- output
 say()  { printf '%s\n' "$*"; }
+
+# One convention for every boolean input: y or n, any case, with yes/no accepted
+# as the long form the prompts and messages already use. Nothing else - 1/0,
+# true/false and on/off are rejected rather than guessed at.
+#
+# An unrecognised value is an ERROR, never a silent "no". Three different
+# conventions used to coexist here: NO_PROMPT matched exactly "1", CONFIRM
+# exactly "yes", PIN_AGENT_SPACE anything starting with y. So NO_PROMPT=true was
+# silently ignored, and CONFIRM=true would have run a silent DRY RUN that
+# reported success and changed nothing, leaving you believing you had deployed.
+is_yes() {   # is_yes VARNAME
+  local _v
+  _v="$(printf %s "${!1:-}" | tr "[:upper:]" "[:lower:]")"
+  case "$_v" in
+    y|yes)   return 0 ;;
+    ""|n|no) return 1 ;;
+    *) printf "%s\n" "${1}=${!1} is not valid. Use y or n (yes/no also accepted, any case)." >&2
+       exit 1 ;;
+  esac
+}
+
+# Resolve REGION from the profile when unset. No default: deploying to or
+# inspecting the wrong region is the most expensive mistake available here,
+# because every script finds its targets by name WITHIN one region - a different
+# region does not collide with the existing deployment, it silently addresses a
+# second, parallel one. A shown default invites exactly that by being accepted
+# unread, so take the profile's own region and stop if it has none.
+common_resolve_region() {
+  [ -n "${REGION:-}" ] && return 0
+  REGION="$(aws configure get region --profile "$TOOLING_PROFILE" 2>/dev/null || echo '')"
+  if [ -n "$REGION" ]; then
+    say "  region: ${REGION} (from profile '${TOOLING_PROFILE}')"
+    return 0
+  fi
+  say "Cannot determine the region." >&2
+  say "  Profile '${TOOLING_PROFILE}' has no region configured, so there is" >&2
+  say "  nothing to fall back to. Guessing one would risk addressing a second," >&2
+  say "  parallel set of resources instead of the one you mean." >&2
+  say "" >&2
+  say "  Either set it for this run:  REGION=<region> ..." >&2
+  say "  or configure it once:        aws configure set region <region> --profile ${TOOLING_PROFILE}" >&2
+  exit 1
+}
+
 step() { printf '\n--- %s ---\n' "$*"; }
 
 # Elide long arguments and redact secrets. A GitHub PAT or an external ID is
@@ -35,14 +79,15 @@ run() {
 
 # ---------------------------------------------------------------------- input
 # Prompt only when stdin is a TTY and the value is unset. The environment always
-# wins. NO_PROMPT=1 forces the non-interactive path for CI.
+# wins. NO_PROMPT=y forces the non-interactive path for CI.
 # `return 0` is load-bearing. At top level a failing `&&` list is exempt from
 # `set -e`, but as a function's LAST command its status becomes the function's
 # return value, so a non-TTY stdin made this function return 1 and killed the
 # calling script with no output.
 common_init_interactive() {
   INTERACTIVE=0
-  if [ -t 0 ] && [ "${NO_PROMPT:-0}" != "1" ]; then INTERACTIVE=1; fi
+  # is_yes FIRST: [ -t 0 ] would short-circuit and skip its validation.
+  if ! is_yes NO_PROMPT && [ -t 0 ]; then INTERACTIVE=1; fi
   return 0
 }
 
@@ -74,7 +119,7 @@ need() { [ -n "${!1:-}" ] || { printf '%s\n' "$1 is required. $2" >&2; exit 1; }
 # common_confirm AFTER it, so the decision is made with the plan on screen.
 common_init_dry() {
   DRY=1
-  if [ "${CONFIRM:-no}" = "yes" ]; then DRY=0; fi
+  if is_yes CONFIRM; then DRY=0; fi
   CONFIRM_PROMPTED=0
   return 0
 }

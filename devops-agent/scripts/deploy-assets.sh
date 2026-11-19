@@ -34,13 +34,14 @@ common_init_dry
 
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE "AWS profile for the Tooling Account"
-ask REGION          "Region" "us-east-1"
+ask REGION          "Region (blank = the profile's own region)"
 ask STACK_NAME      "Stack name (Agent Space)" "corgiro-agent-space"
 ask AGENT_NAME      "Custom agent name" "corgiro-agent"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
-need REGION          "Set REGION."
 PROFILE="$TOOLING_PROFILE"
+# REGION has no default; resolve it from the profile now that we know which one.
+common_resolve_region
 
 # The Agent Space is identified by the STACK that created it, never by a pasted
 # id. Accepting AGENT_SPACE_ID directly allowed assets to be deployed into a

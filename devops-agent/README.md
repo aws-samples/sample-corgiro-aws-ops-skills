@@ -204,7 +204,7 @@ step 3   deploy-assets.sh     skill + custom agent
 
 Both scripts are **dry run by default** and show a plan before asking to apply.
 Run with no environment at all and they prompt, with defaults in brackets;
-`NO_PROMPT=1` forces the non-interactive path for CI.
+`NO_PROMPT=y` forces the non-interactive path for CI.
 
 ```bash
 cd devops-agent
@@ -445,3 +445,25 @@ Region (blank = the profile's own region):
 ```
 
 If the profile has no region either, the script stops rather than guessing.
+
+### Boolean inputs take y or n
+
+One convention for every boolean - `CONFIRM`, `NO_PROMPT`, `PIN_AGENT_SPACE`:
+`y` or `n`, any case, with `yes`/`no` accepted as the long form the prompts
+already show. Nothing else. `1/0`, `true/false` and `on/off` are **rejected**,
+not guessed at.
+
+Three conventions used to coexist. `NO_PROMPT` matched exactly `1`, `CONFIRM`
+exactly `yes`, and `PIN_AGENT_SPACE` anything starting with `y`. So
+`NO_PROMPT=true` was silently ignored, and `CONFIRM=true` would have run a
+silent **dry run** that reported success and changed nothing - leaving you
+believing you had deployed.
+
+An unrecognised value is now an error:
+
+```
+CONFIRM=true is not valid. Use y or n (yes/no also accepted, any case).
+```
+
+Prompt answers are different on purpose: a prompt shows its options, so anything
+other than `y` there simply means no, rather than stopping the run.

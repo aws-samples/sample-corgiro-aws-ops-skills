@@ -39,7 +39,7 @@ set -euo pipefail
 #
 # Every value can come from the environment. Anything still unset is PROMPTED
 # when stdin is a TTY, with the default in brackets - press Enter to accept.
-# Set NO_PROMPT=1 to force the non-interactive path (CI), where unset required
+# Set NO_PROMPT=y to force the non-interactive path (CI), where unset required
 # values are a hard error.
 #
 # TOOLING_PROFILE must resolve to the **Tooling Account**, which by design holds
@@ -78,8 +78,6 @@ set -euo pipefail
 # Template 1 itself still supports all three combinations; this is a deployment
 # policy, not a template limitation.
 
-INTERACTIVE=0
-[ -t 0 ] && [ "${NO_PROMPT:-0}" != "1" ] && INTERACTIVE=1
 
 # ask VAR "prompt" [default] [secret]
 # Defined up here with the other helpers, BEFORE first use.
@@ -91,6 +89,30 @@ INTERACTIVE=0
 # with "say: command not found" instead. Keep every helper above its first use.
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n--- %s ---\n' "$*"; }
+
+# One convention for every boolean input: y or n, any case, with yes/no accepted
+# as the long form the prompts and messages already use. Nothing else - 1/0,
+# true/false and on/off are rejected rather than guessed at.
+#
+# An unrecognised value is an ERROR, never a silent "no". Three different
+# conventions used to coexist here: NO_PROMPT matched exactly "1", CONFIRM
+# exactly "yes", PIN_AGENT_SPACE anything starting with y. So NO_PROMPT=true was
+# silently ignored, and CONFIRM=true would have run a silent DRY RUN that
+# reported success and changed nothing, leaving you believing you had deployed.
+is_yes() {   # is_yes VARNAME
+  local _v
+  _v="$(printf %s "${!1:-}" | tr "[:upper:]" "[:lower:]")"
+  case "$_v" in
+    y|yes)   return 0 ;;
+    ""|n|no) return 1 ;;
+    *) printf "%s\n" "${1}=${!1} is not valid. Use y or n (yes/no also accepted, any case)." >&2
+       exit 1 ;;
+  esac
+}
+INTERACTIVE=0
+# is_yes FIRST: [ -t 0 ] would short-circuit and skip its validation.
+! is_yes NO_PROMPT && [ -t 0 ] && INTERACTIVE=1
+
 
 ask() {
   local var="$1" prompt="$2" def="${3:-}" secret="${4:-}" cur val
@@ -201,7 +223,7 @@ CFN=(aws cloudformation --profile "$PROFILE" --region "$REGION")
 ORG=(aws organizations --profile "$PROFILE" --region "$REGION")
 # Dry run unless CONFIRM=yes. When interactive and CONFIRM is unset, the plan
 # banner below asks instead, so you decide with the facts in front of you.
-DRY=1; [ "${CONFIRM:-no}" = "yes" ] && DRY=0
+DRY=1; is_yes CONFIRM && DRY=0
 CONFIRM_PROMPTED=0
 
 
@@ -564,8 +586,7 @@ fi
 # Pinning is inherently a SECOND-pass action: the role must exist before an
 # association can reference it, and the Agent Space must exist before its ARN
 # does. So the first run always uses the wildcard, and a later run can narrow it.
-case "$PIN_AGENT_SPACE" in
-  [yY]*)
+if is_yes PIN_AGENT_SPACE; then
     AGENT_SPACE_ARN="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
       --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceArn'].OutputValue" \
       --output text 2>/dev/null || echo '')"
@@ -579,8 +600,8 @@ case "$PIN_AGENT_SPACE" in
       say "       with PIN_AGENT_SPACE=yes to narrow the trust." >&2
       exit 1
     fi
-    say "  pin: derived the Agent Space ARN from stack '${STACK_NAME}'" ;;
-esac
+    say "  pin: derived the Agent Space ARN from stack '${STACK_NAME}'"
+fi
 
 # Service-managed StackSets accept explicit account IDs alongside OUs.
 # INTERSECTION deploys only to the listed accounts WITHIN the given OUs, which
@@ -614,7 +635,7 @@ say " Mode               : $([ "$DRY" -eq 1 ] && echo 'DRY RUN' || echo APPLY)"
 say "=============================================================="
 
 # Ask once, here, where the plan is already on screen. The environment still
-# wins: an explicit CONFIRM=yes or NO_PROMPT=1 skips this entirely.
+# wins: an explicit CONFIRM=yes or NO_PROMPT=y skips this entirely.
 if [ "$DRY" -eq 1 ] && [ "$INTERACTIVE" -eq 1 ] && [ -z "${CONFIRM:-}" ]; then
   _apply=""
   read -rp "

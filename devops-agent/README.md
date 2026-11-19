@@ -265,7 +265,8 @@ one.
 |---|---|---|---|
 | `TOOLING_PROFILE` | required | required | required |
 | `REGION` | `us-east-1` | `us-east-1` | `us-east-1` |
-| `AGENT_SPACE_ID` | - | derived from the stack | derived from the space list |
+| `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | - |
+| `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | derived from the space list |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
 | `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
 | `CALL_AS` | detected, not asked; set it only to override | - | - |
@@ -369,3 +370,15 @@ The two walk APIs are not gated separately, because both now report their own
 failures. `list-organizational-units-for-parent` used to send its error to
 `/dev/null`, which made a permissions failure indistinguishable from "this OU has
 no children" - nested accounts went missing and nothing said so.
+
+### The Agent Space is identified by its stack, not by an id
+
+`deploy-assets.sh` reads `AgentSpaceId` from the output of the stack named by
+`STACK_NAME`. It used to accept `AGENT_SPACE_ID` directly as well, which allowed
+assets to be deployed into a space CloudFormation does not manage - the stack
+outputs would then describe a different space from the one holding the skill and
+the agent, with nothing reporting the mismatch.
+
+`STACK_NAME` is now the single identifier across both scripts, and
+`deploy-infra.sh` creates the stack under that same name, so a greenfield
+deployment needs only one overridden value to be found again.

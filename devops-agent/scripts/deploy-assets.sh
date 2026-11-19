@@ -35,29 +35,31 @@ common_init_dry
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE "AWS profile for the Tooling Account"
 ask REGION          "Region" "us-east-1"
+ask STACK_NAME      "Stack name (Agent Space)" "corgiro-agent-space"
 ask AGENT_NAME      "Custom agent name" "corgiro-agent"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
 PROFILE="$TOOLING_PROFILE"
-STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
 
-# AGENT_SPACE_ID is derived from the template 2 stack output when not supplied,
-# so the usual case needs only TOOLING_PROFILE.
-if [ -z "${AGENT_SPACE_ID:-}" ]; then
-  AGENT_SPACE_ID="$(aws cloudformation describe-stacks --profile "$TOOLING_PROFILE" \
-    --region "$REGION" --stack-name "$STACK_NAME" \
-    --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" \
-    --output text 2>/dev/null || echo '')"
-  if [ -n "$AGENT_SPACE_ID" ] && [ "$AGENT_SPACE_ID" != "None" ]; then
-    echo "AGENT_SPACE_ID derived from stack '${STACK_NAME}': ${AGENT_SPACE_ID}"
-  else
-    echo "Could not derive AGENT_SPACE_ID from stack '${STACK_NAME}'." >&2
-    echo "  Pass AGENT_SPACE_ID=<uuid>, or STACK_NAME=<name> if the stack is named" >&2
-    echo "  differently. List spaces with: aws devops-agent list-agent-spaces" >&2
-    exit 1
-  fi
+# The Agent Space is identified by the STACK that created it, never by a pasted
+# id. Accepting AGENT_SPACE_ID directly allowed assets to be deployed into a
+# space CloudFormation does not manage - the stack outputs and validate.sh would
+# then describe a different space from the one holding the assets, with nothing
+# reporting the mismatch. STACK_NAME is the single identifier across both
+# scripts, and deploy-infra.sh creates the stack under that same name.
+AGENT_SPACE_ID="$(aws cloudformation describe-stacks --profile "$TOOLING_PROFILE" \
+  --region "$REGION" --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" \
+  --output text 2>/dev/null || echo '')"
+if [ -z "$AGENT_SPACE_ID" ] || [ "$AGENT_SPACE_ID" = "None" ]; then
+  echo "Could not read AgentSpaceId from stack '${STACK_NAME}'." >&2
+  echo "  Deploy the infrastructure first:" >&2
+  echo "    ./scripts/deploy-infra.sh" >&2
+  echo "  Or set STACK_NAME if the Agent Space stack is named differently." >&2
+  exit 1
 fi
+echo "Agent Space ${AGENT_SPACE_ID} (from stack '${STACK_NAME}')"
 
 # Lookup key, not a name we assign - must equal the SKILL.md frontmatter name.
 # Not a parameter. This is the LOOKUP KEY used to find an existing skill, and it

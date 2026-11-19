@@ -702,7 +702,7 @@ if [ "$DRY" -eq 0 ]; then
   say "=============================================================="
   say " Agent Space ID: ${AGENT_SPACE_ID}"
   say
-  say " Next:  AGENT_SPACE_ID=${AGENT_SPACE_ID} ./scripts/deploy-assets.sh"
+  say " Next:  ./scripts/deploy-assets.sh   (it reads this id from the stack)"
   say "=============================================================="
 else
   say
@@ -712,6 +712,6 @@ else
   else
     say " Nothing was changed. Re-run with CONFIRM=yes to apply."
   fi
-  say " Then:  AGENT_SPACE_ID=<output> ./scripts/deploy-assets.sh"
+  say " Then:  ./scripts/deploy-assets.sh"
   say "=============================================================="
 fi

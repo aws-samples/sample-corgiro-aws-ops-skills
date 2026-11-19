@@ -109,6 +109,13 @@ need() {  # need VAR "hint"
 [ "$INTERACTIVE" -eq 1 ] && printf '\nCorgiro DevOps Agent infrastructure - press Enter to accept defaults\n\n'
 
 # PROFILE is accepted as an alias of TOOLING_PROFILE across all three scripts.
+#
+# This assignment sits BEFORE the ask on purpose, so the ask sees the value as
+# already set and skips its prompt. That is the only legitimate reason to assign
+# a prompted variable outside its `ask`: aliasing another NAME. A default must
+# live in exactly one place - the ask's third argument - because `ask` already
+# covers all three cases (env set, answered, blank or non-interactive). A second
+# `${VAR:-default}` is dead code that silently disagrees the moment one changes.
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE                "AWS profile for the Tooling Account"
 ask REGION                         "Region" "us-east-1"
@@ -132,7 +139,6 @@ PROFILE="$TOOLING_PROFILE"
 # derives the ARN from the stack output - no copy-pasting a 70-character ARN,
 # and no way to pin to the wrong space by mistake.
 AGENT_SPACE_ARN="${AGENT_SPACE_ARN:-}"
-PIN_AGENT_SPACE="${PIN_AGENT_SPACE:-N}"
 
 # Detected in the pre-flight by probing, because the account determines the only
 # valid value. Set it explicitly to skip detection; the pre-flight then verifies

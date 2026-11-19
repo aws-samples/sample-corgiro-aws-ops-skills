@@ -68,7 +68,6 @@ SKILL_NAME="corgiro"
 SKILL_URL="${SKILL_URL:-https://github.com/aws-samples/sample-corgiro-aws-ops-skills/tree/main/skills/corgiro}"
 SKILL_AGENT_TYPES="${SKILL_AGENT_TYPES:-GENERIC}"
 
-AGENT_NAME="${AGENT_NAME:-corgiro-agent}"
 PROMPT_FILE="${PROMPT_FILE:-${SCRIPT_DIR}/../custom-agent/corgiro-agent-prompt.md}"
 
 # Matches the live corgiro-agent. The first seven are the starter set; the rest

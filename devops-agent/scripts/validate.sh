@@ -150,7 +150,7 @@ echo "5. Agent API activity in the last ${LOOKBACK_MINUTES} minutes"
 echo "   Expect AccessDenied only on apigateway:GET and lambda:GetFunction."
 echo "   Anything else denied means the deny policy is too broad."
 hr
-START="$(python3 -c "
+START="$(LOOKBACK_MINUTES="$LOOKBACK_MINUTES" python3 -c "
 import datetime, os
 m = int(os.environ['LOOKBACK_MINUTES'])
 t = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=m)

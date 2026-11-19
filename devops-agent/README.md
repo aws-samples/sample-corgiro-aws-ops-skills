@@ -270,9 +270,151 @@ one.
 | `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | `corgiro-agent-space` |
 | `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | not an input; read from `STACK_NAME`'s stack |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
-| `PIN_AGENT_SPACE` | env only, `n`; `y` on a second run narrows the role trust | - | - |
+| `PIN_AGENT_SPACE` | env only, `no`; `yes` on a second run narrows the role trust | - | - |
 | `CALL_AS` | detected; not an input | - | - |
-| `CONFIRM=yes` | to apply | to apply | n/a, read-only |
+| `ROLE_NAME` | `CorgiroReadOnlyRole-DevOpsAgent` | - | `CorgiroReadOnlyRole-DevOpsAgent` |
+| `CONFIRM` | `yes` to apply | `yes` to apply | n/a, read-only |
+| `NO_PROMPT` | `yes` forces the non-interactive path | same | n/a, no prompts |
+
+### Three prompts, and names by environment
+
+`deploy-infra.sh` asks only what genuinely varies: the profile, the region and
+the target OUs, plus which accounts to narrow to after the walk and the apply
+confirmation. `deploy-assets.sh` asks two, `validate.sh` none.
+
+Everything else is an env-only expert override: `STACKSET_NAME`, `STACK_NAME`,
+`AGENT_SPACE_NAME`, `ROLE_NAME`, `PIN_AGENT_SPACE`, and `AGENT_NAME` in
+`deploy-assets.sh`. Their defaults are correct unless you are deliberately
+running a second parallel deployment, and someone doing that knows to set them.
+Each prompt was also a chance to type a `ROLE_NAME` that collides with Corgiro's
+local-CLI role.
+
+`STACK_NAME` and `AGENT_SPACE_NAME` stay independent, because they name different
+things: one is a CloudFormation stack, the other is the Agent Space's own label.
+Coupling their defaults would let a stack rename silently rename the space.
+
+The collision they can produce together is caught by a pre-flight check instead.
+Space names are **not unique** - the API accepts a second space with an existing
+name - so a parallel deployment that overrode only `STACK_NAME` would quietly
+end up with two spaces called the same thing. The check fails when a space
+already carries the requested name and is not the one the target stack owns:
+
+```
+[FAIL] Agent Space  'corgiro-agent-space' already exists as <id>,
+       which stack 'corgiro-agent-space-gf' does not own.
+```
+
+So a greenfield deployment must set both names explicitly, which is the intent
+made visible rather than inferred.
+
+### `REGION` has no default
+
+Deploying to the wrong region is the most expensive mistake available here. Both
+scripts find their targets by name **within one region**, so a different region
+does not collide with the existing deployment - it silently builds a second,
+parallel one that the first is invisible from.
+
+A shown default invites exactly that by being accepted unread, so the prompt
+offers none. Blank takes the profile's own configured region, which is already
+the right answer in the normal case:
+
+```
+Region (blank = the profile's own region):
+  region: <region> (from profile '<profile>')
+```
+
+If the profile has no region either, the script stops rather than guessing.
+
+### Boolean inputs take y or n
+
+One convention for every boolean - `CONFIRM`, `NO_PROMPT`, `PIN_AGENT_SPACE`:
+`yes` or `no`, any case, with `y`/`n` accepted as the short form the `[y/N]`
+prompts take. Nothing else. `1/0`, `true/false` and `on/off` are **rejected**,
+not guessed at.
+
+Three conventions used to coexist. `NO_PROMPT` matched exactly `1`, `CONFIRM`
+exactly `yes`, and `PIN_AGENT_SPACE` anything starting with `y`. So
+`NO_PROMPT=true` was silently ignored, and `CONFIRM=true` would have run a
+silent **dry run** that reported success and changed nothing - leaving you
+believing you had deployed.
+
+An unrecognised value is now an error:
+
+```
+CONFIRM=true is not valid. Use yes or no (y/n also accepted, any case).
+```
+
+Prompt answers are different on purpose: a prompt shows its options, so anything
+other than `y` there simply means no, rather than stopping the run.
+
+### `CALL_AS` is detected, not asked
+
+There are two valid values and the account decides which, so the script works it
+out. `SELF` is correct only from the management account; `DELEGATED_ADMIN` only
+from a registered delegated administrator. The wrong value is not cosmetic -
+`describe-stack-set` reports `StackSetNotFoundException` for a StackSet that
+plainly exists, so the script would take the create path and then collide on the
+role name.
+
+Identity decides `SELF`, and a probe decides `DELEGATED_ADMIN`. That asymmetry is
+deliberate: `list-stack-sets --call-as SELF` **succeeds from any account**,
+returning an empty list, so probing it proves nothing. From a non-management
+account `SELF` addresses that account's own self-managed StackSets, a different
+and usually empty namespace - it would appear to work and target nothing.
+`--call-as DELEGATED_ADMIN` does discriminate, because it fails unless the
+account is registered.
+
+`CALL_AS` is not an input at all. An override could only ever agree with the
+detection: an explicit `SELF` was accepted only when the caller is the management
+account, which is exactly when detection picks `SELF`, and an explicit
+`DELEGATED_ADMIN` only when the probe succeeds, which is exactly when detection
+picks that. The two branches cost 22 lines to reach the same answer.
+
+### The Agent Space is identified by its stack, not by an id
+
+`deploy-assets.sh` reads `AgentSpaceId` from the output of the stack named by
+`STACK_NAME`. It used to accept `AGENT_SPACE_ID` directly as well, which allowed
+assets to be deployed into a space CloudFormation does not manage - the stack
+outputs would then describe a different space from the one holding the skill and
+the agent, with nothing reporting the mismatch.
+
+`STACK_NAME` is now the single identifier across all three scripts, and
+`deploy-infra.sh` creates the stack under that same name, so a greenfield
+deployment needs only one overridden value to be found again.
+
+`validate.sh` previously took `spaces[0]` from `list-agent-spaces`, which picks an
+arbitrary space once the account holds more than one - precisely the
+greenfield-test case, where it would have reported on the deployment you were not
+testing. It now reads the same stack output, and exits non-zero when it cannot,
+so "I could not check" is not mistakeable for "it is fine".
+
+### The Organizations gate probes what the script uses
+
+The pre-flight calls `describe-organization` and keeps the result. It previously
+probed `list-roots` instead - the one Organizations API the script never calls
+anywhere else - while `describe-organization`, whose result it does use, was
+allowed to fail silently behind `|| echo ''`.
+
+That mattered twice. An empty management account id makes `SELF` unreachable
+even when it is correct, and it stops the management account being excluded from
+the association list; with `TARGET_OU_IDS` set to the org root, that creates an
+association which can never reach status `valid`, because service-managed
+StackSets never deploy to the management account.
+
+The two walk APIs are not gated separately, because both now report their own
+failures. `list-organizational-units-for-parent` used to send its error to
+`/dev/null`, which made a permissions failure indistinguishable from "this OU has
+no children" - nested accounts went missing and nothing said so.
+
+### Failures to list are not absences
+
+`find_asset` captures the error from `list-assets` instead of discarding it. An
+empty result means "no such asset" and the caller turns that into a create, so a
+permissions or transient failure used to become a duplicate-creation attempt
+against a name that already exists - acting on wrong information rather than
+stopping. Verified: a space the caller cannot read now reports
+`AccessDeniedException` and stops, where the previous code reported
+`<not found>`. That check doubles as the `devops-agent` API-access pre-flight.
 
 ### Capabilities and deletion
 
@@ -334,139 +476,3 @@ the role or the agent.
 
 StackSets expose neither for instance stacks, which is why AWS's own Control
 Tower baseline stacks fail both controls. Suppress or accept them.
-
-### `CALL_AS` is detected, not asked
-
-There are two valid values and the account decides which, so the script works it
-out. `SELF` is correct only from the management account; `DELEGATED_ADMIN` only
-from a registered delegated administrator. The wrong value is not cosmetic -
-`describe-stack-set` reports `StackSetNotFoundException` for a StackSet that
-plainly exists, so the script would take the create path and then collide on the
-role name.
-
-Identity decides `SELF`, and a probe decides `DELEGATED_ADMIN`. That asymmetry is
-deliberate: `list-stack-sets --call-as SELF` **succeeds from any account**,
-returning an empty list, so probing it proves nothing. From a non-management
-account `SELF` addresses that account's own self-managed StackSets, a different
-and usually empty namespace - it would appear to work and target nothing.
-`--call-as DELEGATED_ADMIN` does discriminate, because it fails unless the
-account is registered.
-
-`CALL_AS` is not an input at all. An override could only ever agree with the
-detection: an explicit `SELF` was accepted only when the caller is the management
-account, which is exactly when detection picks `SELF`, and an explicit
-`DELEGATED_ADMIN` only when the probe succeeds, which is exactly when detection
-picks that. The two branches cost 22 lines to reach the same answer.
-
-### The Organizations gate probes what the script uses
-
-The pre-flight calls `describe-organization` and keeps the result. It previously
-probed `list-roots` instead - the one Organizations API the script never calls
-anywhere else - while `describe-organization`, whose result it does use, was
-allowed to fail silently behind `|| echo ''`.
-
-That mattered twice. An empty management account id makes `SELF` unreachable
-even when it is correct, and it stops the management account being excluded from
-the association list; with `TARGET_OU_IDS` set to the org root, that creates an
-association which can never reach status `valid`, because service-managed
-StackSets never deploy to the management account.
-
-The two walk APIs are not gated separately, because both now report their own
-failures. `list-organizational-units-for-parent` used to send its error to
-`/dev/null`, which made a permissions failure indistinguishable from "this OU has
-no children" - nested accounts went missing and nothing said so.
-
-### The Agent Space is identified by its stack, not by an id
-
-`deploy-assets.sh` reads `AgentSpaceId` from the output of the stack named by
-`STACK_NAME`. It used to accept `AGENT_SPACE_ID` directly as well, which allowed
-assets to be deployed into a space CloudFormation does not manage - the stack
-outputs would then describe a different space from the one holding the skill and
-the agent, with nothing reporting the mismatch.
-
-`STACK_NAME` is now the single identifier across all three scripts, and
-`deploy-infra.sh` creates the stack under that same name, so a greenfield
-deployment needs only one overridden value to be found again.
-
-`validate.sh` previously took `spaces[0]` from `list-agent-spaces`, which picks an
-arbitrary space once the account holds more than one - precisely the
-greenfield-test case, where it would have reported on the deployment you were not
-testing. It now reads the same stack output, and exits non-zero when it cannot,
-so "I could not check" is not mistakeable for "it is fine".
-
-### Failures to list are not absences
-
-`find_asset` captures the error from `list-assets` instead of discarding it. An
-empty result means "no such asset" and the caller turns that into a create, so a
-permissions or transient failure used to become a duplicate-creation attempt
-against a name that already exists - acting on wrong information rather than
-stopping. Verified: a space the caller cannot read now reports
-`AccessDeniedException` and stops, where the previous code reported
-`<not found>`. That check doubles as the `devops-agent` API-access pre-flight.
-
-### Four prompts, four env-only names
-
-`deploy-infra.sh` asks only what genuinely varies: the profile, the region and
-the target OUs, plus which accounts to narrow to after the walk. The four naming inputs - `STACKSET_NAME`,
-`STACK_NAME`, `AGENT_SPACE_NAME`, `ROLE_NAME` - are env-only expert overrides,
-because their defaults are correct unless you are deliberately running a second
-parallel deployment, and someone doing that knows to set them. Each prompt was
-also a chance to type a `ROLE_NAME` that collides with Corgiro's local-CLI role.
-
-`STACK_NAME` and `AGENT_SPACE_NAME` stay independent, because they name different
-things: one is a CloudFormation stack, the other is the Agent Space's own label.
-Coupling their defaults would let a stack rename silently rename the space.
-
-The collision they can produce together is caught by a pre-flight check instead.
-Space names are **not unique** - the API accepts a second space with an existing
-name - so a parallel deployment that overrode only `STACK_NAME` would quietly
-end up with two spaces called the same thing. The check fails when a space
-already carries the requested name and is not the one the target stack owns:
-
-```
-[FAIL] Agent Space  'corgiro-agent-space' already exists as <id>,
-       which stack 'corgiro-agent-space-gf' does not own.
-```
-
-So a greenfield deployment must set both names explicitly, which is the intent
-made visible rather than inferred.
-
-### `REGION` has no default
-
-Deploying to the wrong region is the most expensive mistake available here. Both
-scripts find their targets by name **within one region**, so a different region
-does not collide with the existing deployment - it silently builds a second,
-parallel one that the first is invisible from.
-
-A shown default invites exactly that by being accepted unread, so the prompt
-offers none. Blank takes the profile's own configured region, which is already
-the right answer in the normal case:
-
-```
-Region (blank = the profile's own region):
-  region: <region> (from profile '<profile>')
-```
-
-If the profile has no region either, the script stops rather than guessing.
-
-### Boolean inputs take y or n
-
-One convention for every boolean - `CONFIRM`, `NO_PROMPT`, `PIN_AGENT_SPACE`:
-`y` or `n`, any case, with `yes`/`no` accepted as the long form the prompts
-already show. Nothing else. `1/0`, `true/false` and `on/off` are **rejected**,
-not guessed at.
-
-Three conventions used to coexist. `NO_PROMPT` matched exactly `1`, `CONFIRM`
-exactly `yes`, and `PIN_AGENT_SPACE` anything starting with `y`. So
-`NO_PROMPT=true` was silently ignored, and `CONFIRM=true` would have run a
-silent **dry run** that reported success and changed nothing - leaving you
-believing you had deployed.
-
-An unrecognised value is now an error:
-
-```
-CONFIRM=true is not valid. Use y or n (yes/no also accepted, any case).
-```
-
-Prompt answers are different on purpose: a prompt shows its options, so anything
-other than `y` there simply means no, rather than stopping the run.

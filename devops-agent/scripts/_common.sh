@@ -6,9 +6,9 @@
 # --------------------------------------------------------------------- output
 say()  { printf '%s\n' "$*"; }
 
-# One convention for every boolean input: y or n, any case, with yes/no accepted
-# as the long form the prompts and messages already use. Nothing else - 1/0,
-# true/false and on/off are rejected rather than guessed at.
+# One convention for every boolean input: yes or no, any case, with y/n accepted
+# as the short form the [y/N] prompts take. Nothing else - 1/0, true/false and
+# on/off are rejected rather than guessed at.
 #
 # An unrecognised value is an ERROR, never a silent "no". Three different
 # conventions used to coexist here: NO_PROMPT matched exactly "1", CONFIRM
@@ -21,7 +21,7 @@ is_yes() {   # is_yes VARNAME
   case "$_v" in
     y|yes)   return 0 ;;
     ""|n|no) return 1 ;;
-    *) printf "%s\n" "${1}=${!1} is not valid. Use y or n (yes/no also accepted, any case)." >&2
+    *) printf "%s\n" "${1}=${!1} is not valid. Use yes or no (y/n also accepted, any case)." >&2
        exit 1 ;;
   esac
 }

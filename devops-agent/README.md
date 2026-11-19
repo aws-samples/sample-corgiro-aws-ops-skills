@@ -171,12 +171,17 @@ One account holds all three capabilities the deployment needs:
 Because of (3), the Agent Space primary account is **derived** from the
 profile's caller identity rather than supplied.
 
-Capability 2 has an undeclared prerequisite that affects the local CLI target
-too. Granting `organizations:ListAccounts` in an IAM policy is necessary but not
+Capability 2 is a **hard prerequisite** and affects the local CLI target too.
+Granting `organizations:ListAccounts` in an IAM policy is necessary but not
 sufficient: most Organizations read APIs are callable only from the management
 account, or from a member account the management account has delegated to via an
 **Organizations resource-based policy**. Corgiro cannot provision that, because
-only the payer can write it. Pass `MEMBER_ACCOUNT_IDS` to skip the requirement.
+only the payer can write it.
+
+The script stops if it cannot read the organization. The OU walk is the only way
+to know what is in scope, and it is what `MEMBER_ACCOUNT_IDS` is checked
+against, so deploying without it would mean creating associations the script
+cannot verify will ever reach status `valid`.
 
 ## Deploying
 
@@ -218,12 +223,26 @@ service has indexed it.
 `TARGET_OU_IDS` accepts OU ids, the org root, or a comma-separated mix, and
 recurses into child OUs because a service-managed StackSet does too.
 
-Supplying `MEMBER_ACCOUNT_IDS` adds `AccountFilterType=INTERSECTION` to the
-StackSet, so the role and the associations land on exactly the same accounts.
-Without it, the account list is derived from the OU tree. Two accounts are
-always excluded from the association list: the Tooling Account, which gets the
-monitor association instead, and the management account, which service-managed
-StackSets never deploy to.
+`MEMBER_ACCOUNT_IDS` **narrows** that result rather than replacing it: the walk
+always runs, and anything you list that is not in a target OU is dropped with a
+reason. The same list is passed to the StackSet with
+`AccountFilterType=INTERSECTION`, so the role and the associations land on
+exactly the same accounts.
+
+Two accounts are always excluded from the association list: the Tooling Account,
+which gets the monitor association instead, and the management account, which
+service-managed StackSets never deploy to.
+
+The Tooling Account must itself be inside `TARGET_OU_IDS`, because it needs the
+member role for its own monitor association, and under `INTERSECTION` listing an
+account is not enough — it must also belong to a target OU. The pre-flight fails
+with the remedy if it does not. For a dedicated tooling OU, name both OUs and
+narrow with `MEMBER_ACCOUNT_IDS`:
+
+```bash
+TARGET_OU_IDS=<tooling-ou>,<workload-ou>
+MEMBER_ACCOUNT_IDS=<the workload accounts you want>
+```
 
 ### Consistent parameters
 

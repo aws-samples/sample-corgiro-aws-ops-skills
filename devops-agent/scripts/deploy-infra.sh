@@ -15,8 +15,15 @@
 # the export name is not predictable; and MemberAccountIds is a property of the
 # OU, not of any stack, so no output could ever supply it.
 #
-# MemberAccountIds is derived from the OU automatically (minus the primary
-# account) unless you override it.
+# The OU walk always runs and always determines what is in scope.
+# MEMBER_ACCOUNT_IDS, when supplied, is INTERSECTED against its result - it
+# narrows the scope, it does not replace it. Organizations read is therefore a
+# hard prerequisite, not optional.
+#
+# This script deploys the DevOps Agent trust path only. The member role template
+# also supports Corgiro's local-CLI trust path, which setup-corgiro deploys with
+# its own parameters; keeping them on separate roles preserves CloudTrail
+# attribution per consumer.
 #
 # The GitHub service registration is NOT handled here. It is a one-time,
 # account-level, partly-manual prerequisite - the GitHub App install and token
@@ -109,19 +116,17 @@ ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
 ask ROLE_NAME                      "Member role name" "CorgiroReadOnlyRole-DevOpsAgent"
 ask CALL_AS                        "StackSet call-as (DELEGATED_ADMIN or SELF)" "DELEGATED_ADMIN"
 ask AGENT_SPACE_NAME               "Agent Space name" "corgiro-agent-space"
+ask STACKSET_NAME                  "StackSet name (member role)" "corgiro-readonly-devops-agent"
+ask STACK_NAME                     "Stack name (Agent Space)" "corgiro-agent-space"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
 need TARGET_OU_IDS   "Set TARGET_OU_IDS, e.g. ou-xxxx-xxxxxxxx or the org root r-xxxx."
+need STACKSET_NAME   "Set STACKSET_NAME."
+need STACK_NAME      "Set STACK_NAME."
 
 PROFILE="$TOOLING_PROFILE"
 
-STACKSET_NAME="${STACKSET_NAME:-corgiro-readonly-devops-agent}"
-STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
-TOOLING_ACCOUNT_ID="${TOOLING_ACCOUNT_ID:-}"
-EXTERNAL_ID="${EXTERNAL_ID:-}"
-PERMISSION_SET_NAME_PREFIX="${PERMISSION_SET_NAME_PREFIX:-CorgiroOperator}"
-OPERATOR_ROLE_NAME="${OPERATOR_ROLE_NAME:-}"
 AGENT_SPACE_ARN="${AGENT_SPACE_ARN:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -196,53 +201,6 @@ run()  {
   fi
 }
 
-if [ -n "$TOOLING_ACCOUNT_ID" ] && [ -z "$EXTERNAL_ID" ]; then
-  say "EXTERNAL_ID is required when TOOLING_ACCOUNT_ID is set (template 1 rule" >&2
-  say "ExternalIdRequiredWithToolingAccount would reject the deploy)." >&2
-  exit 1
-fi
-
-# ---- one mode per role -----------------------------------------------------
-# This script always deploys template 2, so the role it creates always carries
-# the DevOps Agent trust path. Adding the Corgiro operator path on top would put
-# both on one role, which is refused - see the header for why.
-if [ -n "${TOOLING_ACCOUNT_ID:-}" ]; then
-  if [ "${ALLOW_BOTH_TRUST_PATHS:-0}" = "1" ]; then
-    say "ALLOW_BOTH_TRUST_PATHS=1 - proceeding with both trust paths on one role."
-    say "  CloudTrail will not distinguish the CLI operator from the agent."
-  else
-  cat >&2 <<EOF
-
-Refusing to put both trust paths on one member role.
-
-  TOOLING_ACCOUNT_ID is set, which adds the Corgiro operator (local CLI) trust,
-  and this script always deploys the Agent Space, which adds the DevOps Agent
-  trust. That single role would then be usable by both consumers.
-
-  Deploy them separately instead, with distinct names:
-
-    # DevOps Agent target (this script)
-    TOOLING_PROFILE=${TOOLING_PROFILE} TARGET_OU_IDS=${TARGET_OU_IDS} \\
-      ROLE_NAME=CorgiroReadOnlyRole-DevOpsAgent \\
-      STACKSET_NAME=corgiro-readonly-devops-agent \\
-      ./scripts/deploy-infra.sh
-
-    # Local Corgiro CLI target - use Corgiro's own setup, which also writes
-    # ~/.corgiro/config.json and the roster:
-    #   /corgiro setup-corgiro
-    # or deploy cloudformation/1-member-role.yaml alone with
-    #   RoleName=CorgiroReadOnlyRole  AgentSpacePrimaryAccountId=(empty)
-
-  Why: separate role names keep CloudTrail attribution per consumer, keep
-  AIDevOpsAgentAccessPolicy off the CLI role, and leave no external-ID bypass.
-
-  Override with ALLOW_BOTH_TRUST_PATHS=1 if you have a specific reason.
-
-EOF
-    exit 1
-  fi
-fi
-
 # ------------------------------------------------ pre-flight on the Tooling Account
 # All three capabilities belong to the one designated account, so verify them
 # here and derive the Agent Space primary from the same identity.
@@ -266,17 +224,26 @@ else
   exit 1
 fi
 
-# 2. Organizations read - only needed when deriving the member list
-if [ -n "${MEMBER_ACCOUNT_IDS:-}" ]; then
-  say "  [skip] Organizations    MEMBER_ACCOUNT_IDS supplied, no org read needed"
-elif aws organizations list-roots --profile "$TOOLING_PROFILE" --region "$REGION" >/dev/null 2>&1; then
+# 2. Organizations read - a hard prerequisite, not optional.
+#
+# The OU walk is the only way to know which accounts are in scope, and it is
+# what MEMBER_ACCOUNT_IDS is intersected against. Without it the script cannot
+# verify that supplied account ids are reachable, nor that the Tooling Account
+# will receive the role - so it stops rather than deploying something it cannot
+# check.
+if aws organizations list-roots --profile "$TOOLING_PROFILE" --region "$REGION" >/dev/null 2>&1; then
   say "  [ok]   Organizations    read access present"
 else
   say "  [FAIL] Organizations    cannot read the organization." >&2
-  say "         The payer must delegate Organizations read to the Tooling Account" >&2
-  say "         via an Organizations resource-based policy - see item 0 in" >&2
-  say "         CORGIRO-CHANGES-NEEDED.md. Or pass" >&2
-  say "         MEMBER_ACCOUNT_IDS=<comma-separated> to skip the derivation." >&2
+  say "         This is a prerequisite. Granting organizations:ListAccounts in an" >&2
+  say "         IAM policy is necessary but not sufficient: most Organizations" >&2
+  say "         read APIs are callable only from the management account, or from" >&2
+  say "         an account the payer has delegated to via an Organizations" >&2
+  say "         resource-based policy." >&2
+  say "" >&2
+  say "         Either run from the management account with CALL_AS=SELF, or ask" >&2
+  say "         the payer to delegate Organizations read to the Tooling Account." >&2
+  say "         See item 0 in CORGIRO-CHANGES-NEEDED.md for the exact policy." >&2
   exit 1
 fi
 
@@ -305,74 +272,123 @@ collect_accounts() {
              --query 'OrganizationalUnits[].Id' --output text 2>/dev/null | tr '\t' '\n')
 }
 
-# When MEMBER_ACCOUNT_IDS is supplied it scopes BOTH halves of the deployment:
-# the StackSet uses AccountFilterType=INTERSECTION to deploy the role only to
-# those accounts within TARGET_OU_IDS, and template 2 associates exactly the
-# same set. Without it, the role goes to every account in the OU tree and the
-# association list is derived from that tree.
-if [ -n "${MEMBER_ACCOUNT_IDS:-}" ]; then
-  ACCOUNTS_SUPPLIED=1
-  say "member accounts: supplied via MEMBER_ACCOUNT_IDS"
-  say "  StackSet will use AccountFilterType=INTERSECTION to match"
-else
-  ACCOUNTS_SUPPLIED=0
-  # Service-managed StackSets never deploy to the organization's management
-  # account, so including it would create an association pointing at a role
-  # that does not exist. Matters when TARGET_OU_IDS is the org root.
-  MGMT_ACCOUNT="$("${ORG[@]}" describe-organization \
-                    --query 'Organization.MasterAccountId' --output text 2>/dev/null || echo '')"
+# The OU walk ALWAYS runs. MEMBER_ACCOUNT_IDS, when supplied, is intersected
+# against its result rather than replacing it.
+#
+# It used to bypass the walk, which let an account outside TARGET_OU_IDS through.
+# That produced a silent half-deployment: AWS applies
+# AccountFilterType=INTERSECTION to the StackSet, so the out-of-OU account got no
+# role, but template 2 still created its association - which then never reached
+# status "valid" and nothing surfaced why.
+ACCOUNTS_SUPPLIED=0
+[ -n "${MEMBER_ACCOUNT_IDS:-}" ] && ACCOUNTS_SUPPLIED=1
+REQUESTED="${MEMBER_ACCOUNT_IDS:-}"
 
-  RAW=()
-  IFS=',' read -r -a OUS <<< "$TARGET_OU_IDS"
-  for ou in "${OUS[@]}"; do
-    case "$ou" in
-      r-*|ou-*) ;;
-      *) say "'${ou}' is not an OU or root id." >&2
-         say "  Expected a root like 'r-abcd' or an OU like 'ou-abcd-1a2b3c4d'." >&2
-         say "  List them with:" >&2
-         say "    aws organizations list-roots --profile ${TOOLING_PROFILE}" >&2
-         say "    aws organizations list-organizational-units-for-parent \\" >&2
-         say "      --parent-id <root-id> --profile ${TOOLING_PROFILE}" >&2
-         exit 1 ;;
-    esac
-    # Capture first, then loop. Attaching `||` to the while loop conflates two
-    # different things: a `while read` returns the status of its last body
-    # command, so an EMPTY OU looked like an enumeration FAILURE.
-    if ! _found="$(collect_accounts "$ou")"; then
-      say "stopping: could not enumerate '${ou}'." >&2
-      exit 1
-    fi
-    while read -r a; do
-      if [ -n "$a" ]; then RAW+=("$a"); fi
-    done <<< "$_found"
-  done
+# Service-managed StackSets never deploy to the organization's management
+# account, so including it would create an association pointing at a role that
+# does not exist. Matters when TARGET_OU_IDS is the org root.
+MGMT_ACCOUNT="$("${ORG[@]}" describe-organization \
+                  --query 'Organization.MasterAccountId' --output text 2>/dev/null || echo '')"
 
-  # Empty-array expansion is an unbound-variable error under `set -u` on
-  # bash 3.2, so check the count before the loop rather than inside it.
-  if [ "${#RAW[@]}" -eq 0 ]; then
-    say "No active accounts found under: ${TARGET_OU_IDS}" >&2
-    say "  Check the id is correct and that the OU actually contains accounts," >&2
-    say "  or pass MEMBER_ACCOUNT_IDS=<comma-separated> explicitly." >&2
+RAW=()
+IFS=',' read -r -a OUS <<< "$TARGET_OU_IDS"
+for ou in "${OUS[@]}"; do
+  case "$ou" in
+    r-*|ou-*) ;;
+    *) say "'${ou}' is not an OU or root id." >&2
+       say "  Expected a root like 'r-abcd' or an OU like 'ou-abcd-1a2b3c4d'." >&2
+       say "  List them with:" >&2
+       say "    aws organizations list-roots --profile ${TOOLING_PROFILE}" >&2
+       say "    aws organizations list-organizational-units-for-parent \\" >&2
+       say "      --parent-id <root-id> --profile ${TOOLING_PROFILE}" >&2
+       exit 1 ;;
+  esac
+  # Capture first, then loop. Attaching `||` to the while loop conflates two
+  # different things: a `while read` returns the status of its last body
+  # command, so an EMPTY OU looked like an enumeration FAILURE.
+  if ! _found="$(collect_accounts "$ou")"; then
+    say "stopping: could not enumerate '${ou}'." >&2
     exit 1
   fi
+  while read -r a; do
+    if [ -n "$a" ]; then RAW+=("$a"); fi
+  done <<< "$_found"
+done
 
-  ACCTS=(); SKIPPED=(); SEEN=" "
-  for a in "${RAW[@]}"; do
-    # De-duplicate: an account can be reached once per target OU. A string
-    # seen-set avoids expanding a possibly-empty array, which is an
-    # unbound-variable error under `set -u` on bash 3.2 (macOS default).
-    case "$SEEN" in *" $a "*) continue ;; esac
-    SEEN="${SEEN}${a} "
+# Empty-array expansion is an unbound-variable error under `set -u` on
+# bash 3.2, so check the count before the loop rather than inside it.
+if [ "${#RAW[@]}" -eq 0 ]; then
+  say "No active accounts found under: ${TARGET_OU_IDS}" >&2
+  say "  Check the id is correct and that the OU actually contains accounts." >&2
+  exit 1
+fi
+
+# De-duplicate and classify. A string seen-set avoids expanding a possibly-empty
+# array, which is an unbound-variable error under `set -u` on bash 3.2 (macOS).
+WALKED=" "; ACCTS=(); SKIPPED=()
+for a in "${RAW[@]}"; do
+  case "$WALKED" in *" $a "*) continue ;; esac
+  WALKED="${WALKED}${a} "
+  if [ "$a" = "$AGENT_SPACE_PRIMARY_ACCOUNT_ID" ]; then
+    SKIPPED+=("$a (Tooling Account - gets the monitor association)"); continue
+  fi
+  if [ -n "$MGMT_ACCOUNT" ] && [ "$a" = "$MGMT_ACCOUNT" ]; then
+    SKIPPED+=("$a (management - service-managed StackSets skip it)"); continue
+  fi
+  ACCTS+=("$a")
+done
+
+# The Tooling Account needs the role, because the Agent Space's monitor
+# association points at it. Under INTERSECTION, adding it to the Accounts list
+# achieves nothing unless it is ALSO inside TARGET_OU_IDS - so verify, and fail
+# with the remedy rather than deploying an association that cannot validate.
+case "$WALKED" in
+  *" ${AGENT_SPACE_PRIMARY_ACCOUNT_ID} "*) ;;
+  *) say "" >&2
+     say "[FAIL] The Tooling Account ${AGENT_SPACE_PRIMARY_ACCOUNT_ID} is not in any OU" >&2
+     say "       under ${TARGET_OU_IDS}." >&2
+     say "" >&2
+     say "       It needs the member role, because the Agent Space's monitor" >&2
+     say "       association points at it. Under AccountFilterType=INTERSECTION," >&2
+     say "       listing it is not enough - it must also belong to a target OU." >&2
+     say "" >&2
+     say "       Add the OU containing it to TARGET_OU_IDS. If you do not want the" >&2
+     say "       role in that OU's other accounts, narrow with MEMBER_ACCOUNT_IDS:" >&2
+     say "         TARGET_OU_IDS=<tooling-ou>,<workload-ou>" >&2
+     say "         MEMBER_ACCOUNT_IDS=<the accounts you actually want>" >&2
+     exit 1 ;;
+esac
+
+if [ "$ACCOUNTS_SUPPLIED" -eq 1 ]; then
+  # Intersect the supplied list with the walk. Anything outside it is dropped
+  # here, so the association list matches what the StackSet will actually reach.
+  KEPT=(); DROPPED=()
+  IFS=',' read -r -a WANT <<< "$REQUESTED"
+  for a in "${WANT[@]}"; do
+    a="$(printf '%s' "$a" | tr -d '[:space:]')"       # tolerate "a, b"
+    [ -n "$a" ] || continue
+    case "$a" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+      *) say "'${a}' is not a 12-digit account id." >&2; exit 1 ;;
+    esac
     if [ "$a" = "$AGENT_SPACE_PRIMARY_ACCOUNT_ID" ]; then
-      SKIPPED+=("$a (primary - gets the monitor association)"); continue
+      DROPPED+=("$a (Tooling Account - gets the monitor association)"); continue
     fi
     if [ -n "$MGMT_ACCOUNT" ] && [ "$a" = "$MGMT_ACCOUNT" ]; then
-      SKIPPED+=("$a (management - service-managed StackSets skip it)"); continue
+      DROPPED+=("$a (management - service-managed StackSets skip it)"); continue
     fi
-    ACCTS+=("$a")
+    case "$WALKED" in
+      *" $a "*) KEPT+=("$a") ;;
+      *) DROPPED+=("$a (not in any OU under ${TARGET_OU_IDS})") ;;
+    esac
   done
-
-  MEMBER_ACCOUNT_IDS="$(IFS=,; echo "${ACCTS[*]}")"
+  MEMBER_ACCOUNT_IDS="$(IFS=,; echo "${KEPT[*]:-}")"
+  say "member accounts: ${#WANT[@]} requested, intersected with the OU walk, using ${#KEPT[@]}"
+  if [ "${#DROPPED[@]}" -gt 0 ]; then
+    for x in "${DROPPED[@]}"; do say "  dropped ${x}"; done
+  fi
+else
+  MEMBER_ACCOUNT_IDS="$(IFS=,; echo "${ACCTS[*]:-}")"
   say "member accounts: walked ${TARGET_OU_IDS} recursively, found ${#RAW[@]}, using ${#ACCTS[@]}"
   if [ "${#SKIPPED[@]}" -gt 0 ]; then
     for x in "${SKIPPED[@]}"; do say "  skipped ${x}"; done
@@ -404,11 +420,6 @@ else
 fi
 say " Tooling Account    : ${AGENT_SPACE_PRIMARY_ACCOUNT_ID}  (also the Agent Space host)"
 say " Member accounts    : ${MEMBER_ACCOUNT_IDS}"
-if [ -n "$TOOLING_ACCOUNT_ID" ]; then
-  say " Trust paths        : corgiro-operator + devops-agent (tooling ${TOOLING_ACCOUNT_ID})"
-else
-  say " Trust paths        : devops-agent only"
-fi
 say " Mode               : $([ "$DRY" -eq 1 ] && echo 'DRY RUN' || echo APPLY)"
 say "=============================================================="
 
@@ -434,10 +445,6 @@ T1_PARAMS=(
   "ParameterKey=AgentSpacePrimaryAccountId,ParameterValue=${AGENT_SPACE_PRIMARY_ACCOUNT_ID}"
   "ParameterKey=AgentSpaceRegion,ParameterValue=${REGION}"
   "ParameterKey=AgentSpaceArn,ParameterValue=${AGENT_SPACE_ARN}"
-  "ParameterKey=ToolingAccountId,ParameterValue=${TOOLING_ACCOUNT_ID}"
-  "ParameterKey=ExternalId,ParameterValue=${EXTERNAL_ID}"
-  "ParameterKey=PermissionSetNamePrefix,ParameterValue=${PERMISSION_SET_NAME_PREFIX}"
-  "ParameterKey=OperatorRoleName,ParameterValue=${OPERATOR_ROLE_NAME}"
 )
 
 if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$CALL_AS" >/dev/null 2>&1; then

@@ -35,10 +35,14 @@ common_init_dry
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE "AWS profile for the Tooling Account"
 ask REGION          "Region (blank = the profile's own region)"
-ask STACK_NAME      "Stack name (Agent Space)" "corgiro-agent-space"
-ask AGENT_NAME      "Custom agent name" "corgiro-agent"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
+
+# Naming: env-only expert overrides, matching deploy-infra.sh. STACK_NAME is the
+# single identifier for the Agent Space across all three scripts, and AGENT_NAME
+# only changes when you deliberately run a second agent alongside the first.
+STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
+AGENT_NAME="${AGENT_NAME:-corgiro-agent}"
 PROFILE="$TOOLING_PROFILE"
 # REGION has no default; resolve it from the profile now that we know which one.
 common_resolve_region

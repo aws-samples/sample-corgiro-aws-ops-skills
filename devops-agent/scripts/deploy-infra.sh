@@ -130,12 +130,11 @@ ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/
 STACKSET_NAME="${STACKSET_NAME:-corgiro-readonly-devops-agent}"
 STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
 ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
-# Defaults to STACK_NAME, not to a literal. They previously shared the literal
-# 'corgiro-agent-space' while being independent, so overriding STACK_NAME for a
-# parallel deployment and forgetting this one created a SECOND Agent Space with
-# the SAME name as the first. Names are not unique, so nothing rejected it, and
-# anything matching by name then broke.
-AGENT_SPACE_NAME="${AGENT_SPACE_NAME:-$STACK_NAME}"
+# Independent of STACK_NAME on purpose: one names a CloudFormation stack, the
+# other is the Agent Space's own label. Coupling their defaults would let a
+# stack rename silently rename the space. The collision they can produce
+# together is caught by a pre-flight check instead.
+AGENT_SPACE_NAME="${AGENT_SPACE_NAME:-corgiro-agent-space}"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
@@ -312,6 +311,47 @@ else
   say "         administrator, or run from the management account." >&2
   exit 1
 fi
+
+# 3. Agent Space name collision.
+#
+# Space names are NOT unique - the API accepts a second space with an existing
+# name - so creating one is not self-policing. STACK_NAME and AGENT_SPACE_NAME
+# are independent, which is correct, but it means a parallel deployment that
+# overrides only the stack name would quietly produce two spaces called the
+# same thing, and anything matching by name then breaks.
+#
+# A collision is: a space already carries this name, and it is not the one this
+# stack owns.
+_this_space="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
+  --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" \
+  --output text 2>/dev/null || echo '')"
+_named_space="$(aws devops-agent list-agent-spaces --profile "$TOOLING_PROFILE" \
+  --region "$REGION" --output json 2>/dev/null |
+  N="$AGENT_SPACE_NAME" python3 -c '
+import sys, json, os
+n = os.environ["N"]
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for s in d.get("agentSpaces") or []:
+    if s.get("name") == n:
+        print(s.get("agentSpaceId") or ""); break
+' || echo '')"
+
+if [ -n "$_named_space" ] && [ "$_named_space" != "${_this_space}" ]; then
+  say "  [FAIL] Agent Space     '${AGENT_SPACE_NAME}' already exists as" >&2
+  say "         ${_named_space}, which stack '${STACK_NAME}' does not own." >&2
+  say "" >&2
+  say "         Space names are not unique, so deploying would create a SECOND" >&2
+  say "         space with the same name and anything matching by name would" >&2
+  say "         then break." >&2
+  say "" >&2
+  say "         Set AGENT_SPACE_NAME to something else, or set STACK_NAME to the" >&2
+  say "         stack that already owns that space." >&2
+  exit 1
+fi
+say "  [ok]   Agent Space     '${AGENT_SPACE_NAME}' is free or already ours"
 
 # ------------------------------------------------- derive the member account list
 #

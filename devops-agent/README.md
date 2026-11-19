@@ -410,8 +410,20 @@ because their defaults are correct unless you are deliberately running a second
 parallel deployment, and someone doing that knows to set them. Each prompt was
 also a chance to type a `ROLE_NAME` that collides with Corgiro's local-CLI role.
 
-`AGENT_SPACE_NAME` defaults to `STACK_NAME` rather than to a literal. The two
-previously shared the literal `corgiro-agent-space` while being independent, so
-overriding the stack name for a parallel deployment and forgetting the space name
-created a **second Agent Space with the same name as the first**. Space names are
-not unique, so nothing rejected it, and anything matching by name then broke.
+`STACK_NAME` and `AGENT_SPACE_NAME` stay independent, because they name different
+things: one is a CloudFormation stack, the other is the Agent Space's own label.
+Coupling their defaults would let a stack rename silently rename the space.
+
+The collision they can produce together is caught by a pre-flight check instead.
+Space names are **not unique** - the API accepts a second space with an existing
+name - so a parallel deployment that overrode only `STACK_NAME` would quietly
+end up with two spaces called the same thing. The check fails when a space
+already carries the requested name and is not the one the target stack owns:
+
+```
+[FAIL] Agent Space  'corgiro-agent-space' already exists as <id>,
+       which stack 'corgiro-agent-space-gf' does not own.
+```
+
+So a greenfield deployment must set both names explicitly, which is the intent
+made visible rather than inferred.

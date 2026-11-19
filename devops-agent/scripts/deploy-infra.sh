@@ -120,30 +120,42 @@ TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE                "AWS profile for the Tooling Account"
 ask REGION                         "Region" "us-east-1"
 ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
-ask STACKSET_NAME                  "StackSet name (member role)" "corgiro-readonly-devops-agent"
-ask STACK_NAME                     "Stack name (Agent Space)" "corgiro-agent-space"
-ask AGENT_SPACE_NAME               "Agent Space name" "corgiro-agent-space"
-ask ROLE_NAME                      "Member role name" "CorgiroReadOnlyRole-DevOpsAgent"
 ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/N)" "N"
+
+# Naming: env-only expert overrides, not questions. The defaults are correct
+# unless you are deliberately running a second, parallel deployment - and
+# someone doing that knows to set them. Prompting for four names that are almost
+# always accepted unchanged is friction, and each prompt is a chance to type a
+# ROLE_NAME that collides with Corgiro's local-CLI role.
+STACKSET_NAME="${STACKSET_NAME:-corgiro-readonly-devops-agent}"
+STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
+ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
+# Defaults to STACK_NAME, not to a literal. They previously shared the literal
+# 'corgiro-agent-space' while being independent, so overriding STACK_NAME for a
+# parallel deployment and forgetting this one created a SECOND Agent Space with
+# the SAME name as the first. Names are not unique, so nothing rejected it, and
+# anything matching by name then broke.
+AGENT_SPACE_NAME="${AGENT_SPACE_NAME:-$STACK_NAME}"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
 need TARGET_OU_IDS   "Set TARGET_OU_IDS, e.g. ou-xxxx-xxxxxxxx or the org root r-xxxx."
-need STACKSET_NAME   "Set STACKSET_NAME."
-need STACK_NAME      "Set STACK_NAME."
 
 PROFILE="$TOOLING_PROFILE"
 
-# AGENT_SPACE_ARN stays as an env-only escape hatch, for pinning to an Agent
-# Space this script did not create. The normal route is PIN_AGENT_SPACE, which
-# derives the ARN from the stack output - no copy-pasting a 70-character ARN,
-# and no way to pin to the wrong space by mistake.
-AGENT_SPACE_ARN="${AGENT_SPACE_ARN:-}"
+# Not an input. PIN_AGENT_SPACE derives it from the stack output, which is the
+# only coherent source: pinning the role's trust to an Agent Space the stack
+# does not own means the role would not trust the space that actually assumes
+# it, and the associations would break with nothing reporting why. Same reason
+# deploy-assets.sh stopped accepting AGENT_SPACE_ID.
+AGENT_SPACE_ARN=""
 
-# Detected in the pre-flight by probing, because the account determines the only
-# valid value. Set it explicitly to skip detection; the pre-flight then verifies
-# the value you gave rather than falling back to the other one.
-CALL_AS="${CALL_AS:-}"
+# Not an input either. Detected in the pre-flight, and an override could only
+# ever agree with it: an explicit SELF was accepted only when the caller is the
+# management account, which is exactly when detection picks SELF, and an
+# explicit DELEGATED_ADMIN only when the probe succeeds, which is exactly when
+# detection picks that. 22 lines to reach the same answer.
+CALL_AS=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The member role is Corgiro's own template, shared with the local CLI
@@ -287,46 +299,19 @@ _probe_delegated() {
     --call-as DELEGATED_ADMIN >/dev/null 2>&1
 }
 
-case "$CALL_AS" in
-  SELF)
-    if [ "$_is_mgmt" -eq 1 ]; then
-      say "  [ok]   StackSet admin   --call-as SELF (set explicitly; management account)"
-    else
-      say "  [FAIL] StackSet admin   CALL_AS=SELF, but this is not the management" >&2
-      say "         account. SELF would address this account's own self-managed" >&2
-      say "         StackSets, not the organization's service-managed ones, so it" >&2
-      say "         would appear to work and target nothing." >&2
-      say "         Unset CALL_AS to let the script detect the right value." >&2
-      exit 1
-    fi ;;
-  DELEGATED_ADMIN)
-    if _probe_delegated; then
-      say "  [ok]   StackSet admin   --call-as DELEGATED_ADMIN (set explicitly)"
-    else
-      say "  [FAIL] StackSet admin   cannot list stack sets as a delegated" >&2
-      say "         administrator. Register the Tooling Account as a CloudFormation" >&2
-      say "         StackSets delegated administrator, or run from the management" >&2
-      say "         account." >&2
-      exit 1
-    fi ;;
-  "")
-    if [ "$_is_mgmt" -eq 1 ]; then
-      CALL_AS=SELF
-      say "  [ok]   StackSet admin   --call-as SELF (detected; management account)"
-    elif _probe_delegated; then
-      CALL_AS=DELEGATED_ADMIN
-      say "  [ok]   StackSet admin   --call-as DELEGATED_ADMIN (detected)"
-    else
-      say "  [FAIL] StackSet admin   this account is neither the management account" >&2
-      say "         nor a registered StackSets delegated administrator." >&2
-      say "         Register it as a CloudFormation StackSets delegated" >&2
-      say "         administrator, or run from the management account." >&2
-      exit 1
-    fi ;;
-  *)
-    say "  [FAIL] CALL_AS must be SELF or DELEGATED_ADMIN, got '${CALL_AS}'." >&2
-    exit 1 ;;
-esac
+if [ "$_is_mgmt" -eq 1 ]; then
+  CALL_AS=SELF
+  say "  [ok]   StackSet admin   --call-as SELF (management account)"
+elif _probe_delegated; then
+  CALL_AS=DELEGATED_ADMIN
+  say "  [ok]   StackSet admin   --call-as DELEGATED_ADMIN (delegated administrator)"
+else
+  say "  [FAIL] StackSet admin   this account is neither the management account" >&2
+  say "         nor a registered StackSets delegated administrator." >&2
+  say "         Register it as a CloudFormation StackSets delegated" >&2
+  say "         administrator, or run from the management account." >&2
+  exit 1
+fi
 
 # ------------------------------------------------- derive the member account list
 #
@@ -510,28 +495,20 @@ fi
 # does. So the first run always uses the wildcard, and a later run can narrow it.
 case "$PIN_AGENT_SPACE" in
   [yY]*)
-    if [ -n "$AGENT_SPACE_ARN" ]; then
-      say "  pin: using the AGENT_SPACE_ARN supplied explicitly"
-    else
-      AGENT_SPACE_ARN="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
-        --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceArn'].OutputValue" \
-        --output text 2>/dev/null || echo '')"
-      if [ -z "$AGENT_SPACE_ARN" ] || [ "$AGENT_SPACE_ARN" = "None" ]; then
-        say "" >&2
-        say "[FAIL] Cannot pin: no Agent Space exists yet." >&2
-        say "       Stack '${STACK_NAME}' has no AgentSpaceArn output, so there is" >&2
-        say "       nothing to pin the role trust to." >&2
-        say "" >&2
-        say "       Run once WITHOUT pinning to create the Agent Space, then re-run" >&2
-        say "       with PIN_AGENT_SPACE=yes to narrow the trust." >&2
-        exit 1
-      fi
-      say "  pin: derived the Agent Space ARN from stack '${STACK_NAME}'"
-    fi ;;
-  *)
-    if [ -n "$AGENT_SPACE_ARN" ]; then
-      say "  pin: AGENT_SPACE_ARN supplied without PIN_AGENT_SPACE; using it anyway"
-    fi ;;
+    AGENT_SPACE_ARN="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
+      --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceArn'].OutputValue" \
+      --output text 2>/dev/null || echo '')"
+    if [ -z "$AGENT_SPACE_ARN" ] || [ "$AGENT_SPACE_ARN" = "None" ]; then
+      say "" >&2
+      say "[FAIL] Cannot pin: no Agent Space exists yet." >&2
+      say "       Stack '${STACK_NAME}' has no AgentSpaceArn output, so there is" >&2
+      say "       nothing to pin the role trust to." >&2
+      say "" >&2
+      say "       Run once WITHOUT pinning to create the Agent Space, then re-run" >&2
+      say "       with PIN_AGENT_SPACE=yes to narrow the trust." >&2
+      exit 1
+    fi
+    say "  pin: derived the Agent Space ARN from stack '${STACK_NAME}'" ;;
 esac
 
 # Service-managed StackSets accept explicit account IDs alongside OUs.

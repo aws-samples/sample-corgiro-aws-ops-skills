@@ -96,8 +96,7 @@ PIN_AGENT_SPACE=yes CONFIRM=yes ./scripts/deploy-infra.sh   # then narrows it
 no ARN to copy and no way to pin to the wrong space; it fails with that
 instruction if no space exists yet. Pinning is not sticky - the inputs fully
 determine the state, so a later run without the flag widens the trust back.
-`AGENT_SPACE_ARN` stays as an env-only override for pinning to a space this
-script did not create.
+
 
 Prefer leaving it unpinned. `aws:SourceAccount` already blocks every other AWS account, so
 pinning only guards against a second Agent Space inside your own primary
@@ -269,7 +268,7 @@ one.
 | `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | not an input; read from `STACK_NAME`'s stack |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
 | `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
-| `CALL_AS` | detected, not asked; set it only to override | - | - |
+| `CALL_AS` | detected; not an input | - | - |
 | `CONFIRM=yes` | to apply | to apply | n/a, read-only |
 
 ### Capabilities and deletion
@@ -350,8 +349,11 @@ and usually empty namespace - it would appear to work and target nothing.
 `--call-as DELEGATED_ADMIN` does discriminate, because it fails unless the
 account is registered.
 
-Setting `CALL_AS` explicitly skips detection, and is then verified rather than
-trusted: `CALL_AS=SELF` from a non-management account is rejected.
+`CALL_AS` is not an input at all. An override could only ever agree with the
+detection: an explicit `SELF` was accepted only when the caller is the management
+account, which is exactly when detection picks `SELF`, and an explicit
+`DELEGATED_ADMIN` only when the probe succeeds, which is exactly when detection
+picks that. The two branches cost 22 lines to reach the same answer.
 
 ### The Organizations gate probes what the script uses
 
@@ -398,3 +400,18 @@ against a name that already exists - acting on wrong information rather than
 stopping. Verified: a space the caller cannot read now reports
 `AccessDeniedException` and stops, where the previous code reported
 `<not found>`. That check doubles as the `devops-agent` API-access pre-flight.
+
+### Four prompts, four env-only names
+
+`deploy-infra.sh` asks only what genuinely varies: the profile, the region, the
+target OUs, and whether to pin. The four naming inputs - `STACKSET_NAME`,
+`STACK_NAME`, `AGENT_SPACE_NAME`, `ROLE_NAME` - are env-only expert overrides,
+because their defaults are correct unless you are deliberately running a second
+parallel deployment, and someone doing that knows to set them. Each prompt was
+also a chance to type a `ROLE_NAME` that collides with Corgiro's local-CLI role.
+
+`AGENT_SPACE_NAME` defaults to `STACK_NAME` rather than to a literal. The two
+previously shared the literal `corgiro-agent-space` while being independent, so
+overriding the stack name for a parallel deployment and forgetting the space name
+created a **second Agent Space with the same name as the first**. Space names are
+not unique, so nothing rejected it, and anything matching by name then broke.

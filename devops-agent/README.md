@@ -175,7 +175,7 @@ One account holds all three capabilities the deployment needs:
 
 | # | Capability | Why |
 |---|---|---|
-| 1 | CloudFormation StackSets delegated administrator, or the management account with `CALL_AS=SELF` | deploy the member role across the OU |
+| 1 | CloudFormation StackSets delegated administrator, or the management account | deploy the member role across the OU. The script detects which applies |
 | 2 | Organizations read | derive the member account list |
 | 3 | hosts the Agent Space | the Agent Space stack deploys into it |
 
@@ -268,6 +268,7 @@ one.
 | `AGENT_SPACE_ID` | - | derived from the stack | derived from the space list |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
 | `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
+| `CALL_AS` | detected, not asked; set it only to override | - | - |
 | `CONFIRM=yes` | to apply | to apply | n/a, read-only |
 
 ### Capabilities and deletion
@@ -330,3 +331,23 @@ the role or the agent.
 
 StackSets expose neither for instance stacks, which is why AWS's own Control
 Tower baseline stacks fail both controls. Suppress or accept them.
+
+### `CALL_AS` is detected, not asked
+
+There are two valid values and the account decides which, so the script works it
+out. `SELF` is correct only from the management account; `DELEGATED_ADMIN` only
+from a registered delegated administrator. The wrong value is not cosmetic -
+`describe-stack-set` reports `StackSetNotFoundException` for a StackSet that
+plainly exists, so the script would take the create path and then collide on the
+role name.
+
+Identity decides `SELF`, and a probe decides `DELEGATED_ADMIN`. That asymmetry is
+deliberate: `list-stack-sets --call-as SELF` **succeeds from any account**,
+returning an empty list, so probing it proves nothing. From a non-management
+account `SELF` addresses that account's own self-managed StackSets, a different
+and usually empty namespace - it would appear to work and target nothing.
+`--call-as DELEGATED_ADMIN` does discriminate, because it fails unless the
+account is registered.
+
+Setting `CALL_AS` explicitly skips detection, and is then verified rather than
+trusted: `CALL_AS=SELF` from a non-management account is rejected.

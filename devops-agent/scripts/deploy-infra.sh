@@ -113,11 +113,10 @@ TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE                "AWS profile for the Tooling Account"
 ask REGION                         "Region" "us-east-1"
 ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
-ask ROLE_NAME                      "Member role name" "CorgiroReadOnlyRole-DevOpsAgent"
-ask CALL_AS                        "StackSet call-as (DELEGATED_ADMIN or SELF)" "DELEGATED_ADMIN"
-ask AGENT_SPACE_NAME               "Agent Space name" "corgiro-agent-space"
 ask STACKSET_NAME                  "StackSet name (member role)" "corgiro-readonly-devops-agent"
 ask STACK_NAME                     "Stack name (Agent Space)" "corgiro-agent-space"
+ask AGENT_SPACE_NAME               "Agent Space name" "corgiro-agent-space"
+ask ROLE_NAME                      "Member role name" "CorgiroReadOnlyRole-DevOpsAgent"
 ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/N)" "N"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
@@ -134,6 +133,11 @@ PROFILE="$TOOLING_PROFILE"
 # and no way to pin to the wrong space by mistake.
 AGENT_SPACE_ARN="${AGENT_SPACE_ARN:-}"
 PIN_AGENT_SPACE="${PIN_AGENT_SPACE:-N}"
+
+# Detected in the pre-flight by probing, because the account determines the only
+# valid value. Set it explicitly to skip detection; the pre-flight then verifies
+# the value you gave rather than falling back to the other one.
+CALL_AS="${CALL_AS:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The member role is Corgiro's own template, shared with the local CLI
@@ -218,19 +222,7 @@ AGENT_SPACE_PRIMARY_ACCOUNT_ID="$(aws sts get-caller-identity --profile "$TOOLIN
   say "  cannot authenticate with profile '${TOOLING_PROFILE}'" >&2; exit 1; }
 say "  Tooling Account = Agent Space primary = ${AGENT_SPACE_PRIMARY_ACCOUNT_ID}"
 
-# 1. StackSet administration
-if aws cloudformation list-stack-sets --profile "$TOOLING_PROFILE" --region "$REGION" \
-     --call-as "$CALL_AS" >/dev/null 2>&1; then
-  say "  [ok]   StackSet admin   (--call-as ${CALL_AS})"
-else
-  say "  [FAIL] StackSet admin   cannot list stack sets with --call-as ${CALL_AS}." >&2
-  say "         Register the Tooling Account as a CloudFormation StackSets" >&2
-  say "         delegated administrator, or run from the management account" >&2
-  say "         with CALL_AS=SELF." >&2
-  exit 1
-fi
-
-# 2. Organizations read - a hard prerequisite, not optional.
+# 1. Organizations read - a hard prerequisite, not optional.
 #
 # The OU walk is the only way to know which accounts are in scope, and it is
 # what MEMBER_ACCOUNT_IDS is intersected against. Without it the script cannot
@@ -253,6 +245,72 @@ else
   exit 1
 fi
 
+
+# 2. StackSet administration, and which call-as this account must use.
+#
+# Not worth asking: there are two valid answers and the account decides which.
+# The wrong one is not cosmetic - describe-stack-set reports
+# StackSetNotFoundException for a StackSet that plainly exists.
+#
+# SELF is valid ONLY from the management account. This script creates
+# SERVICE_MANAGED StackSets, which live in the management account and are
+# otherwise reached through a delegated administrator; SELF from anywhere else
+# addresses that account's own self-managed StackSets - a different, usually
+# empty namespace. That is why identity decides SELF rather than a probe:
+# `list-stack-sets --call-as SELF` SUCCEEDS from any account (returning an empty
+# list), so probing it proves nothing. `--call-as DELEGATED_ADMIN` does
+# discriminate - it fails unless the account is registered.
+MGMT_ACCOUNT="$(aws organizations describe-organization --profile "$TOOLING_PROFILE" \
+  --region "$REGION" --query 'Organization.MasterAccountId' --output text 2>/dev/null || echo '')"
+
+_is_mgmt=0
+[ -n "$MGMT_ACCOUNT" ] && [ "$AGENT_SPACE_PRIMARY_ACCOUNT_ID" = "$MGMT_ACCOUNT" ] && _is_mgmt=1
+
+_probe_delegated() {
+  aws cloudformation list-stack-sets --profile "$TOOLING_PROFILE" --region "$REGION" \
+    --call-as DELEGATED_ADMIN >/dev/null 2>&1
+}
+
+case "$CALL_AS" in
+  SELF)
+    if [ "$_is_mgmt" -eq 1 ]; then
+      say "  [ok]   StackSet admin   --call-as SELF (set explicitly; management account)"
+    else
+      say "  [FAIL] StackSet admin   CALL_AS=SELF, but this is not the management" >&2
+      say "         account. SELF would address this account's own self-managed" >&2
+      say "         StackSets, not the organization's service-managed ones, so it" >&2
+      say "         would appear to work and target nothing." >&2
+      say "         Unset CALL_AS to let the script detect the right value." >&2
+      exit 1
+    fi ;;
+  DELEGATED_ADMIN)
+    if _probe_delegated; then
+      say "  [ok]   StackSet admin   --call-as DELEGATED_ADMIN (set explicitly)"
+    else
+      say "  [FAIL] StackSet admin   cannot list stack sets as a delegated" >&2
+      say "         administrator. Register the Tooling Account as a CloudFormation" >&2
+      say "         StackSets delegated administrator, or run from the management" >&2
+      say "         account." >&2
+      exit 1
+    fi ;;
+  "")
+    if [ "$_is_mgmt" -eq 1 ]; then
+      CALL_AS=SELF
+      say "  [ok]   StackSet admin   --call-as SELF (detected; management account)"
+    elif _probe_delegated; then
+      CALL_AS=DELEGATED_ADMIN
+      say "  [ok]   StackSet admin   --call-as DELEGATED_ADMIN (detected)"
+    else
+      say "  [FAIL] StackSet admin   this account is neither the management account" >&2
+      say "         nor a registered StackSets delegated administrator." >&2
+      say "         Register it as a CloudFormation StackSets delegated" >&2
+      say "         administrator, or run from the management account." >&2
+      exit 1
+    fi ;;
+  *)
+    say "  [FAIL] CALL_AS must be SELF or DELEGATED_ADMIN, got '${CALL_AS}'." >&2
+    exit 1 ;;
+esac
 
 # ------------------------------------------------- derive the member account list
 #
@@ -288,11 +346,10 @@ collect_accounts() {
 # status "valid" and nothing surfaced why.
 REQUESTED="${MEMBER_ACCOUNT_IDS:-}"
 
-# Service-managed StackSets never deploy to the organization's management
+# MGMT_ACCOUNT was resolved during pre-flight, where it also ordered the
+# call-as probe. Service-managed StackSets never deploy to the management
 # account, so including it would create an association pointing at a role that
 # does not exist. Matters when TARGET_OU_IDS is the org root.
-MGMT_ACCOUNT="$("${ORG[@]}" describe-organization \
-                  --query 'Organization.MasterAccountId' --output text 2>/dev/null || echo '')"
 
 RAW=()
 IFS=',' read -r -a OUS <<< "$TARGET_OU_IDS"

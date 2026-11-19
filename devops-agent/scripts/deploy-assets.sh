@@ -111,21 +111,38 @@ say
 
 # ---------------------------------------------------------------- helpers
 # Find an existing asset of a given type by its metadata name.
+#
+# Do NOT swallow the list error. An empty result means "no such asset" and the
+# caller turns that into a create - so a permissions or transient failure used
+# to become a duplicate-creation attempt against a name that already exists,
+# acting on wrong information rather than stopping. Letting it fail here doubles
+# as the API-access check, so no separate pre-flight step is needed.
 find_asset() {
-  local atype="$1" aname="$2"
-  "${AWSX[@]}" list-assets --agent-space-id "$AGENT_SPACE_ID" --output json 2>/dev/null |
+  local atype="$1" aname="$2" out
+  if ! out="$("${AWSX[@]}" list-assets --agent-space-id "$AGENT_SPACE_ID" \
+               --output json 2>&1)"; then
+    say "  cannot list assets in Agent Space ${AGENT_SPACE_ID}:" >&2
+    say "    ${out}" >&2
+    return 1
+  fi
+  # python is the LAST command on purpose: its status becomes the function's, so
+  # malformed JSON also fails rather than reading as "not found".
   ATYPE="$atype" ANAME="$aname" python3 -c '
 import sys, json, os
 t, n = os.environ["ATYPE"], os.environ["ANAME"]
 for a in json.load(sys.stdin).get("items", []):
     if a.get("assetType") == t and (a.get("metadata") or {}).get("name") == n:
         print(a["assetId"]); break
-'
+' <<< "$out"
 }
 
 # ---------------------------------------------------------------- 1. skill
 say "--- 1. skill: ${SKILL_NAME} ---"
-SKILL_ID="$(find_asset skill "$SKILL_NAME" || true)"
+if ! SKILL_ID="$(find_asset skill "$SKILL_NAME")"; then
+  say "stopping: cannot tell whether the skill already exists, so creating one" >&2
+  say "          now risks a duplicate." >&2
+  exit 1
+fi
 
 # A skill imported from a sourceUrl takes its name and description from the
 # SKILL.md frontmatter, in BOTH directions:
@@ -194,7 +211,10 @@ say
 
 # ---------------------------------------------------------- 2. custom agent
 say "--- 2. custom agent: ${AGENT_NAME} ---"
-AGENT_ID="$(find_asset custom_agent "$AGENT_NAME" || true)"
+if ! AGENT_ID="$(find_asset custom_agent "$AGENT_NAME")"; then
+  say "stopping: cannot tell whether the custom agent already exists." >&2
+  exit 1
+fi
 
 AGENT_META="$(N="$AGENT_NAME" S="$SKILL_ID" T="$TOOLS" python3 -c '
 import json, os

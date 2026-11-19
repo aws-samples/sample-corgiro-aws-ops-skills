@@ -5,7 +5,7 @@
 #
 # Usage:
 #   TOOLING_PROFILE=<profile> ./scripts/validate.sh
-#   TOOLING_PROFILE=<profile> AGENT_SPACE_ID=<uuid> ROLE_NAME=<role> ./scripts/validate.sh
+#   TOOLING_PROFILE=<profile> STACK_NAME=<stack> ROLE_NAME=<role> ./scripts/validate.sh
 #
 # This is an operational inspection tool, NOT a test suite. It answers "is the
 # deployment healthy right now" - association status, role shape, and what the
@@ -23,6 +23,9 @@ REGION="${REGION:-us-east-1}"
 # is Corgiro's local-CLI role, so defaulting to it would silently inspect the
 # wrong role and report a missing deny policy.
 ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
+# The Agent Space is identified by its stack, not by a pasted id - same single
+# identifier the two deploy scripts use.
+STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
 LOOKBACK_MINUTES="${LOOKBACK_MINUTES:-60}"
 
 AWSX=(aws --profile "$PROFILE" --region "$REGION")
@@ -39,21 +42,25 @@ echo "2. Agent Spaces"
 hr
 "${AWSX[@]}" devops-agent list-agent-spaces --output json
 
-AGENT_SPACE_ID="${AGENT_SPACE_ID:-$(
-  "${AWSX[@]}" devops-agent list-agent-spaces --output json 2>/dev/null |
-  python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-spaces = d.get('agentSpaces') or []
-print(spaces[0]['agentSpaceId'] if spaces else '')
-" 2>/dev/null || true
-)}"
-
-if [[ -z "$AGENT_SPACE_ID" ]]; then
+# Identify the space by the STACK that created it, exactly as deploy-assets.sh
+# does. This used to take spaces[0] from list-agent-spaces, which picks an
+# ARBITRARY space once the account holds more than one - precisely the
+# greenfield-test case, where it would have reported on the deployment you were
+# not testing and looked like a result for the one you were.
+AGENT_SPACE_ID="$(
+  "${AWSX[@]}" cloudformation describe-stacks --stack-name "$STACK_NAME" \
+    --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" \
+    --output text 2>/dev/null || echo ''
+)"
+if [[ -z "$AGENT_SPACE_ID" || "$AGENT_SPACE_ID" == "None" ]]; then
   echo
-  echo "No Agent Space found and AGENT_SPACE_ID not set. Stopping here."
-  exit 0
+  echo "Could not read AgentSpaceId from stack '${STACK_NAME}'."
+  echo "  Set STACK_NAME if the Agent Space stack is named differently, or"
+  echo "  deploy first with ./scripts/deploy-infra.sh"
+  # Exit non-zero: "I could not check" must not be mistakeable for "it is fine".
+  exit 1
 fi
+echo "Agent Space ${AGENT_SPACE_ID} (from stack '${STACK_NAME}')"
 
 hr
 echo "3. Associations for ${AGENT_SPACE_ID}"

@@ -265,8 +265,8 @@ one.
 |---|---|---|---|
 | `TOOLING_PROFILE` | required | required | required |
 | `REGION` | `us-east-1` | `us-east-1` | `us-east-1` |
-| `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | - |
-| `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | derived from the space list |
+| `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | `corgiro-agent-space` |
+| `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | not an input; read from `STACK_NAME`'s stack |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
 | `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
 | `CALL_AS` | detected, not asked; set it only to override | - | - |
@@ -379,6 +379,22 @@ assets to be deployed into a space CloudFormation does not manage - the stack
 outputs would then describe a different space from the one holding the skill and
 the agent, with nothing reporting the mismatch.
 
-`STACK_NAME` is now the single identifier across both scripts, and
+`STACK_NAME` is now the single identifier across all three scripts, and
 `deploy-infra.sh` creates the stack under that same name, so a greenfield
 deployment needs only one overridden value to be found again.
+
+`validate.sh` previously took `spaces[0]` from `list-agent-spaces`, which picks an
+arbitrary space once the account holds more than one - precisely the
+greenfield-test case, where it would have reported on the deployment you were not
+testing. It now reads the same stack output, and exits non-zero when it cannot,
+so "I could not check" is not mistakeable for "it is fine".
+
+### Failures to list are not absences
+
+`find_asset` captures the error from `list-assets` instead of discarding it. An
+empty result means "no such asset" and the caller turns that into a create, so a
+permissions or transient failure used to become a duplicate-creation attempt
+against a name that already exists - acting on wrong information rather than
+stopping. Verified: a space the caller cannot read now reports
+`AccessDeniedException` and stops, where the previous code reported
+`<not found>`. That check doubles as the `devops-agent` API-access pre-flight.

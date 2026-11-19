@@ -82,6 +82,16 @@ INTERACTIVE=0
 [ -t 0 ] && [ "${NO_PROMPT:-0}" != "1" ] && INTERACTIVE=1
 
 # ask VAR "prompt" [default] [secret]
+# Defined up here with the other helpers, BEFORE first use.
+#
+# `say` is not just a missing function if called early - /usr/bin/say exists on
+# macOS (text-to-speech), so an early call silently exits 0 with no output and
+# `set -e` never fires. A whole [FAIL] block went to the speech synthesiser
+# instead of the terminal, leaving a bare `exit 1`. On Linux the same code dies
+# with "say: command not found" instead. Keep every helper above its first use.
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n--- %s ---\n' "$*"; }
+
 ask() {
   local var="$1" prompt="$2" def="${3:-}" secret="${4:-}" cur val
   cur="${!var:-}"
@@ -118,7 +128,32 @@ need() {  # need VAR "hint"
 # `${VAR:-default}` is dead code that silently disagrees the moment one changes.
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE                "AWS profile for the Tooling Account"
-ask REGION                         "Region" "us-east-1"
+need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
+
+# No default on purpose. Deploying to the wrong region is the most expensive
+# mistake available here - it builds a SECOND parallel StackSet and Agent Space
+# that the existing ones are invisible from, and both scripts find their targets
+# by name within one region, so nothing notices. A shown default invites exactly
+# that by being accepted unread, so leave it blank and take the profile's own
+# region, which is already the right answer in the normal case.
+ask REGION                         "Region (blank = the profile's own region)"
+if [ -z "${REGION:-}" ]; then
+  REGION="$(aws configure get region --profile "$TOOLING_PROFILE" 2>/dev/null || echo '')"
+  if [ -n "$REGION" ]; then
+    say "  region: ${REGION} (from profile '${TOOLING_PROFILE}')"
+  else
+    say "Cannot determine the region." >&2
+    say "  Profile '${TOOLING_PROFILE}' has no region configured, so there is" >&2
+    say "  nothing to fall back to. Guessing one would risk deploying a second," >&2
+    say "  parallel set of resources that the existing ones cannot see." >&2
+    say "" >&2
+    say "  Either set it for this run:" >&2
+    say "    REGION=<region> ./scripts/deploy-infra.sh" >&2
+    say "  or configure it once:" >&2
+    say "    aws configure set region <region> --profile ${TOOLING_PROFILE}" >&2
+    exit 1
+  fi
+fi
 ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
 ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/N)" "N"
 
@@ -136,8 +171,6 @@ ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
 # together is caught by a pre-flight check instead.
 AGENT_SPACE_NAME="${AGENT_SPACE_NAME:-corgiro-agent-space}"
 
-need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
-need REGION          "Set REGION."
 need TARGET_OU_IDS   "Set TARGET_OU_IDS, e.g. ou-xxxx-xxxxxxxx or the org root r-xxxx."
 
 PROFILE="$TOOLING_PROFILE"
@@ -171,7 +204,6 @@ ORG=(aws organizations --profile "$PROFILE" --region "$REGION")
 DRY=1; [ "${CONFIRM:-no}" = "yes" ] && DRY=0
 CONFIRM_PROMPTED=0
 
-say()  { printf '%s\n' "$*"; }
 
 # CloudFormation returns a non-zero ValidationError saying "No updates are to be
 # performed" when an update would change nothing. Under `set -e` that aborts the
@@ -203,7 +235,6 @@ run_update() {
   fi
   printf '%s\n' "$out"
 }
-step() { printf '\n--- %s ---\n' "$*"; }
 # Echo the command in dry-run with long arguments elided and secrets redacted.
 # A GitHub PAT is shorter than the elision threshold, so it must be matched by
 # name as well, or a dry run leaks the token to stdout and shell history.

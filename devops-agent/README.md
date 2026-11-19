@@ -263,7 +263,7 @@ one.
 | | `deploy-infra.sh` | `deploy-assets.sh` | `validate.sh` |
 |---|---|---|---|
 | `TOOLING_PROFILE` | required | required | required |
-| `REGION` | `us-east-1` | `us-east-1` | `us-east-1` |
+| `REGION` | blank = the profile's own region | blank = the profile's own region | blank = the profile's own region |
 | `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | `corgiro-agent-space` |
 | `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | not an input; read from `STACK_NAME`'s stack |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
@@ -427,3 +427,21 @@ already carries the requested name and is not the one the target stack owns:
 
 So a greenfield deployment must set both names explicitly, which is the intent
 made visible rather than inferred.
+
+### `REGION` has no default
+
+Deploying to the wrong region is the most expensive mistake available here. Both
+scripts find their targets by name **within one region**, so a different region
+does not collide with the existing deployment - it silently builds a second,
+parallel one that the first is invisible from.
+
+A shown default invites exactly that by being accepted unread, so the prompt
+offers none. Blank takes the profile's own configured region, which is already
+the right answer in the normal case:
+
+```
+Region (blank = the profile's own region):
+  region: <region> (from profile '<profile>')
+```
+
+If the profile has no region either, the script stops rather than guessing.

@@ -118,6 +118,7 @@ ask CALL_AS                        "StackSet call-as (DELEGATED_ADMIN or SELF)" 
 ask AGENT_SPACE_NAME               "Agent Space name" "corgiro-agent-space"
 ask STACKSET_NAME                  "StackSet name (member role)" "corgiro-readonly-devops-agent"
 ask STACK_NAME                     "Stack name (Agent Space)" "corgiro-agent-space"
+ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/N)" "N"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
@@ -127,7 +128,12 @@ need STACK_NAME      "Set STACK_NAME."
 
 PROFILE="$TOOLING_PROFILE"
 
+# AGENT_SPACE_ARN stays as an env-only escape hatch, for pinning to an Agent
+# Space this script did not create. The normal route is PIN_AGENT_SPACE, which
+# derives the ARN from the stack output - no copy-pasting a 70-character ARN,
+# and no way to pin to the wrong space by mistake.
 AGENT_SPACE_ARN="${AGENT_SPACE_ARN:-}"
+PIN_AGENT_SPACE="${PIN_AGENT_SPACE:-N}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The member role is Corgiro's own template, shared with the local CLI
@@ -280,8 +286,6 @@ collect_accounts() {
 # AccountFilterType=INTERSECTION to the StackSet, so the out-of-OU account got no
 # role, but template 2 still created its association - which then never reached
 # status "valid" and nothing surfaced why.
-ACCOUNTS_SUPPLIED=0
-[ -n "${MEMBER_ACCOUNT_IDS:-}" ] && ACCOUNTS_SUPPLIED=1
 REQUESTED="${MEMBER_ACCOUNT_IDS:-}"
 
 # Service-managed StackSets never deploy to the organization's management
@@ -359,6 +363,22 @@ case "$WALKED" in
      exit 1 ;;
 esac
 
+# Report the walk BEFORE prompting, so the choice is made with the result in
+# view - including what was excluded and why - rather than typing ids blind.
+say "member accounts: walked ${TARGET_OU_IDS} recursively, found ${#RAW[@]}, using ${#ACCTS[@]}"
+if [ "${#SKIPPED[@]}" -gt 0 ]; then
+  for x in "${SKIPPED[@]}"; do say "  skipped ${x}"; done
+fi
+
+if [ -z "$REQUESTED" ] && [ "$INTERACTIVE" -eq 1 ]; then
+  say ""
+  say "  Leave blank to associate all ${#ACCTS[@]}, or enter a comma-separated subset."
+  ask REQUESTED "Narrow to specific accounts" ""
+fi
+
+ACCOUNTS_SUPPLIED=0
+[ -n "$REQUESTED" ] && ACCOUNTS_SUPPLIED=1
+
 if [ "$ACCOUNTS_SUPPLIED" -eq 1 ]; then
   # Intersect the supplied list with the walk. Anything outside it is dropped
   # here, so the association list matches what the StackSet will actually reach.
@@ -389,13 +409,39 @@ if [ "$ACCOUNTS_SUPPLIED" -eq 1 ]; then
   fi
 else
   MEMBER_ACCOUNT_IDS="$(IFS=,; echo "${ACCTS[*]:-}")"
-  say "member accounts: walked ${TARGET_OU_IDS} recursively, found ${#RAW[@]}, using ${#ACCTS[@]}"
-  if [ "${#SKIPPED[@]}" -gt 0 ]; then
-    for x in "${SKIPPED[@]}"; do say "  skipped ${x}"; done
-  fi
 fi
 
 [ -n "$MEMBER_ACCOUNT_IDS" ] || { say "no member accounts resolved; template 2 needs at least one" >&2; exit 1; }
+
+# ------------------------------------------------------ resolve the trust scope
+# Pinning is inherently a SECOND-pass action: the role must exist before an
+# association can reference it, and the Agent Space must exist before its ARN
+# does. So the first run always uses the wildcard, and a later run can narrow it.
+case "$PIN_AGENT_SPACE" in
+  [yY]*)
+    if [ -n "$AGENT_SPACE_ARN" ]; then
+      say "  pin: using the AGENT_SPACE_ARN supplied explicitly"
+    else
+      AGENT_SPACE_ARN="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceArn'].OutputValue" \
+        --output text 2>/dev/null || echo '')"
+      if [ -z "$AGENT_SPACE_ARN" ] || [ "$AGENT_SPACE_ARN" = "None" ]; then
+        say "" >&2
+        say "[FAIL] Cannot pin: no Agent Space exists yet." >&2
+        say "       Stack '${STACK_NAME}' has no AgentSpaceArn output, so there is" >&2
+        say "       nothing to pin the role trust to." >&2
+        say "" >&2
+        say "       Run once WITHOUT pinning to create the Agent Space, then re-run" >&2
+        say "       with PIN_AGENT_SPACE=yes to narrow the trust." >&2
+        exit 1
+      fi
+      say "  pin: derived the Agent Space ARN from stack '${STACK_NAME}'"
+    fi ;;
+  *)
+    if [ -n "$AGENT_SPACE_ARN" ]; then
+      say "  pin: AGENT_SPACE_ARN supplied without PIN_AGENT_SPACE; using it anyway"
+    fi ;;
+esac
 
 # Service-managed StackSets accept explicit account IDs alongside OUs.
 # INTERSECTION deploys only to the listed accounts WITHIN the given OUs, which
@@ -420,6 +466,11 @@ else
 fi
 say " Tooling Account    : ${AGENT_SPACE_PRIMARY_ACCOUNT_ID}  (also the Agent Space host)"
 say " Member accounts    : ${MEMBER_ACCOUNT_IDS}"
+if [ -n "$AGENT_SPACE_ARN" ]; then
+  say " Role trust scope   : pinned to one Agent Space"
+else
+  say " Role trust scope   : any Agent Space in this account and region (recommended)"
+fi
 say " Mode               : $([ "$DRY" -eq 1 ] && echo 'DRY RUN' || echo APPLY)"
 say "=============================================================="
 
@@ -505,18 +556,18 @@ T2_PARAMS=(
   "ParameterKey=AgentSpaceName,ParameterValue=${AGENT_SPACE_NAME}"
 )
 
-# Template 2 deploys into the Tooling Account, which is the Agent Space host.
-CFN2=(aws cloudformation --profile "$TOOLING_PROFILE" --region "$REGION")
+# Template 2 deploys into the Tooling Account, which is the Agent Space host -
+# the same account and region as CFN, since PROFILE is set from TOOLING_PROFILE.
 
 T2_OP=create
-if "${CFN2[@]}" describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
+if "${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
   T2_OP=update
   say "  exists -> update-stack"
   if [ "$DRY" -eq 1 ]; then
-    run "${CFN2[@]}" update-stack --stack-name "$STACK_NAME" --template-body "file://${T2}" \
+    run "${CFN[@]}" update-stack --stack-name "$STACK_NAME" --template-body "file://${T2}" \
       --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --parameters "${T2_PARAMS[@]}"
   else
-    run_update "${CFN2[@]}" update-stack \
+    run_update "${CFN[@]}" update-stack \
       --stack-name "$STACK_NAME" --template-body "file://${T2}" \
       --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
       --parameters "${T2_PARAMS[@]}" >/dev/null
@@ -526,7 +577,7 @@ else
   say "  not found -> create-stack (with termination protection)"
   # Termination protection is a create-stack parameter, not a template property.
   # Deleting this stack deletes the Agent Space and all of its data.
-  run "${CFN2[@]}" create-stack \
+  run "${CFN[@]}" create-stack \
     --stack-name "$STACK_NAME" --template-body "file://${T2}" \
     --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
     --enable-termination-protection \
@@ -540,19 +591,19 @@ if [ "$DRY" -eq 0 ]; then
   case "$T2_OP" in
     create)
       say "  waiting for stack create..."
-      "${CFN2[@]}" wait stack-create-complete --stack-name "$STACK_NAME" ;;
+      "${CFN[@]}" wait stack-create-complete --stack-name "$STACK_NAME" ;;
     update)
       say "  waiting for stack update..."
-      "${CFN2[@]}" wait stack-update-complete --stack-name "$STACK_NAME" ;;
+      "${CFN[@]}" wait stack-update-complete --stack-name "$STACK_NAME" ;;
     noop)
       say "  nothing to wait for" ;;
   esac
-  ST="$("${CFN2[@]}" describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text)"
+  ST="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text)"
   case "$ST" in
     CREATE_COMPLETE|UPDATE_COMPLETE) say "  stack status: ${ST}" ;;
     *) say "  stack status: ${ST} - not a successful terminal state; stopping." >&2; exit 1 ;;
   esac
-  AGENT_SPACE_ID="$("${CFN2[@]}" describe-stacks --stack-name "$STACK_NAME" \
+  AGENT_SPACE_ID="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
     --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" --output text)"
   [ -n "$AGENT_SPACE_ID" ] && [ "$AGENT_SPACE_ID" != "None" ] || {
     say "  could not read the AgentSpaceId output; stopping." >&2; exit 1; }

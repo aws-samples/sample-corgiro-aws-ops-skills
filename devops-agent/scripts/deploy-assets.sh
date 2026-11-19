@@ -36,7 +36,6 @@ TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 ask TOOLING_PROFILE "AWS profile for the Tooling Account"
 ask REGION          "Region" "us-east-1"
 ask AGENT_NAME      "Custom agent name" "corgiro-agent"
-ask SKILL_NAME      "Skill name" "corgiro"
 
 need TOOLING_PROFILE "Set TOOLING_PROFILE (or PROFILE) to a profile for the Tooling Account."
 need REGION          "Set REGION."
@@ -61,7 +60,11 @@ if [ -z "${AGENT_SPACE_ID:-}" ]; then
 fi
 
 # Lookup key, not a name we assign - must equal the SKILL.md frontmatter name.
-SKILL_NAME="${SKILL_NAME:-corgiro}"
+# Not a parameter. This is the LOOKUP KEY used to find an existing skill, and it
+# is owned by the `name:` field in skills/corgiro/SKILL.md - a different value
+# cannot rename anything, it can only fail to match and create a duplicate. It
+# therefore tracks SKILL.md, and the check below catches it if that ever drifts.
+SKILL_NAME="corgiro"
 SKILL_URL="${SKILL_URL:-https://github.com/aws-samples/sample-corgiro-aws-ops-skills/tree/main/skills/corgiro}"
 SKILL_AGENT_TYPES="${SKILL_AGENT_TYPES:-GENERIC}"
 
@@ -171,7 +174,8 @@ else
       say "  WARNING: SKILL_NAME='${SKILL_NAME}' but the skill is named" >&2
       say "           '${_actual}', taken from its SKILL.md frontmatter. The" >&2
       say "           lookup is by name, so the next run will NOT find it and" >&2
-      say "           will create a duplicate. Set SKILL_NAME=${_actual}." >&2
+      say "           will create a duplicate. Update SKILL_NAME in this script" >&2
+      say "           to '${_actual}' to match SKILL.md." >&2
     fi
   else
     say "  DRY-RUN would create-asset --asset-type skill --content ${SKILL_CONTENT}"

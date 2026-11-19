@@ -83,12 +83,23 @@ which does not need it.
 
 ### `ArnLike` on `agentspace/*`, not a pinned ARN
 
-`AgentSpaceArn` can pin the trust to one Agent Space, but it cannot be set on a
-first deploy: the role must exist before an association can reference it, and
-the space must exist before its ARN does. Reaching a pinned state takes three
-passes.
+Pinning the trust to one Agent Space cannot happen on a first deploy: the role
+must exist before an association can reference it, and the space must exist
+before its ARN does. It is inherently a second pass:
 
-Leave it empty. `aws:SourceAccount` already blocks every other AWS account, so
+```bash
+./scripts/deploy-infra.sh                        # creates everything, wildcard trust
+PIN_AGENT_SPACE=yes CONFIRM=yes ./scripts/deploy-infra.sh   # then narrows it
+```
+
+`PIN_AGENT_SPACE` reads the ARN from the Agent Space stack output, so there is
+no ARN to copy and no way to pin to the wrong space; it fails with that
+instruction if no space exists yet. Pinning is not sticky - the inputs fully
+determine the state, so a later run without the flag widens the trust back.
+`AGENT_SPACE_ARN` stays as an env-only override for pinning to a space this
+script did not create.
+
+Prefer leaving it unpinned. `aws:SourceAccount` already blocks every other AWS account, so
 pinning only guards against a second Agent Space inside your own primary
 account. Restricting `aidevops:CreateAgentSpace` there is one control instead of
 one per member account, and it survives the space being recreated, which a
@@ -218,7 +229,7 @@ service has indexed it.
 | Input | Controls |
 |---|---|
 | `TARGET_OU_IDS` | which accounts get the **role** (StackSet deployment target) |
-| `MEMBER_ACCOUNT_IDS` | optional; narrows **both** halves |
+| `MEMBER_ACCOUNT_IDS` | optional; narrows **both** halves. Prompted after the walk, so you choose from what it found |
 
 `TARGET_OU_IDS` accepts OU ids, the org root, or a comma-separated mix, and
 recurses into child OUs because a service-managed StackSet does too.
@@ -255,6 +266,8 @@ one.
 | `TOOLING_PROFILE` | required | required | required |
 | `REGION` | `us-east-1` | `us-east-1` | `us-east-1` |
 | `AGENT_SPACE_ID` | - | derived from the stack | derived from the space list |
+| `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
+| `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
 | `CONFIRM=yes` | to apply | to apply | n/a, read-only |
 
 ### Capabilities and deletion

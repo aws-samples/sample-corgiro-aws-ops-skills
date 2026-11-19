@@ -177,13 +177,25 @@ if [ -z "${REGION:-}" ]; then
   fi
 fi
 ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
-ask PIN_AGENT_SPACE                "Pin role trust to this Agent Space only? (y/N)" "N"
 
 # Naming: env-only expert overrides, not questions. The defaults are correct
 # unless you are deliberately running a second, parallel deployment - and
 # someone doing that knows to set them. Prompting for four names that are almost
 # always accepted unchanged is friction, and each prompt is a chance to type a
 # ROLE_NAME that collides with Corgiro's local-CLI role.
+# Env-only, and defaulting to n on purpose.
+#
+# Pinning cannot work on a first run - the space must exist before its ARN does -
+# so a prompt would offer an answer guaranteed to abort the very deployment that
+# creates the space. It is advertised in the post-apply output instead, where it
+# is actually possible.
+#
+# The default stays n because unpinned is the recommended state, not merely the
+# easier one: aws:SourceAccount already blocks every other account, so pinning
+# only guards against a second Agent Space inside this one, and a pinned ARN
+# breaks when the space is recreated where ArnLike on agentspace/* does not.
+PIN_AGENT_SPACE="${PIN_AGENT_SPACE:-n}"
+
 STACKSET_NAME="${STACKSET_NAME:-corgiro-readonly-devops-agent}"
 STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
 ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
@@ -772,6 +784,14 @@ if [ "$DRY" -eq 0 ]; then
   say " Agent Space ID: ${AGENT_SPACE_ID}"
   say
   say " Next:  ./scripts/deploy-assets.sh   (it reads this id from the stack)"
+  if [ -z "$AGENT_SPACE_ARN" ]; then
+    say ""
+    say " Optional hardening: the member role currently trusts any Agent Space in"
+    say " this account and region, which is the recommended state. To narrow it to"
+    say " this one space, re-run with PIN_AGENT_SPACE=y - possible only now that the"
+    say " space exists. It is not sticky: a later run without the flag widens it"
+    say " back, and a pinned ARN breaks if the space is recreated."
+  fi
   say "=============================================================="
 else
   say

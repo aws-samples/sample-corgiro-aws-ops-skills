@@ -85,7 +85,10 @@ which does not need it.
 
 Pinning the trust to one Agent Space cannot happen on a first deploy: the role
 must exist before an association can reference it, and the space must exist
-before its ARN does. It is inherently a second pass:
+before its ARN does. It is inherently a second pass, which is also why it is env-only rather than a
+prompt - a prompt would offer an answer guaranteed to abort the very run that
+creates the space. The post-apply output advertises it instead, where it is
+actually possible:
 
 ```bash
 ./scripts/deploy-infra.sh                        # creates everything, wildcard trust
@@ -267,7 +270,7 @@ one.
 | `STACK_NAME` | `corgiro-agent-space` | `corgiro-agent-space` | `corgiro-agent-space` |
 | `AGENT_SPACE_ID` | - | not an input; read from `STACK_NAME`'s stack | not an input; read from `STACK_NAME`'s stack |
 | `MEMBER_ACCOUNT_IDS` | prompted after the OU walk; narrows it | - | - |
-| `PIN_AGENT_SPACE` | `N`; `yes` on a second run narrows the role trust | - | - |
+| `PIN_AGENT_SPACE` | env only, `n`; `y` on a second run narrows the role trust | - | - |
 | `CALL_AS` | detected; not an input | - | - |
 | `CONFIRM=yes` | to apply | to apply | n/a, read-only |
 
@@ -403,8 +406,8 @@ stopping. Verified: a space the caller cannot read now reports
 
 ### Four prompts, four env-only names
 
-`deploy-infra.sh` asks only what genuinely varies: the profile, the region, the
-target OUs, and whether to pin. The four naming inputs - `STACKSET_NAME`,
+`deploy-infra.sh` asks only what genuinely varies: the profile, the region and
+the target OUs, plus which accounts to narrow to after the walk. The four naming inputs - `STACKSET_NAME`,
 `STACK_NAME`, `AGENT_SPACE_NAME`, `ROLE_NAME` - are env-only expert overrides,
 because their defaults are correct unless you are deliberately running a second
 parallel deployment, and someone doing that knows to set them. Each prompt was

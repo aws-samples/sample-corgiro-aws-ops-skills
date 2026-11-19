@@ -224,27 +224,38 @@ say "  Tooling Account = Agent Space primary = ${AGENT_SPACE_PRIMARY_ACCOUNT_ID}
 
 # 1. Organizations read - a hard prerequisite, not optional.
 #
-# The OU walk is the only way to know which accounts are in scope, and it is
-# what MEMBER_ACCOUNT_IDS is intersected against. Without it the script cannot
-# verify that supplied account ids are reachable, nor that the Tooling Account
-# will receive the role - so it stops rather than deploying something it cannot
-# check.
-if aws organizations list-roots --profile "$TOOLING_PROFILE" --region "$REGION" >/dev/null 2>&1; then
-  say "  [ok]   Organizations    read access present"
-else
+# Probe the API whose RESULT this script depends on, and keep that result. It
+# used to probe list-roots, which the script never calls anywhere else, while
+# describe-organization - the one it does use - was allowed to fail silently
+# behind `|| echo ''`. That mattered twice over: an empty MGMT_ACCOUNT makes
+# SELF unreachable even when correct, and stops the management account being
+# excluded from the association list, which with TARGET_OU_IDS set to the org
+# root creates an association that can never reach status valid.
+#
+# The walk's own two APIs report their own failures; neither swallows errors now.
+if ! MGMT_ACCOUNT="$(aws organizations describe-organization --profile "$TOOLING_PROFILE" \
+     --region "$REGION" --query 'Organization.MasterAccountId' --output text 2>&1)"; then
   say "  [FAIL] Organizations    cannot read the organization." >&2
+  say "         ${MGMT_ACCOUNT}" >&2
+  say "" >&2
   say "         This is a prerequisite. Granting organizations:ListAccounts in an" >&2
   say "         IAM policy is necessary but not sufficient: most Organizations" >&2
   say "         read APIs are callable only from the management account, or from" >&2
   say "         an account the payer has delegated to via an Organizations" >&2
   say "         resource-based policy." >&2
   say "" >&2
-  say "         Either run from the management account with CALL_AS=SELF, or ask" >&2
-  say "         the payer to delegate Organizations read to the Tooling Account." >&2
-  say "         See item 0 in CORGIRO-CHANGES-NEEDED.md for the exact policy." >&2
+  say "         Either run from the management account, or ask the payer to" >&2
+  say "         delegate Organizations read to the Tooling Account. See item 0 in" >&2
+  say "         CORGIRO-CHANGES-NEEDED.md for the exact policy." >&2
   exit 1
 fi
-
+case "$MGMT_ACCOUNT" in
+  [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+  *) say "  [FAIL] Organizations    unexpected management account id:" >&2
+     say "         '${MGMT_ACCOUNT}'" >&2
+     exit 1 ;;
+esac
+say "  [ok]   Organizations    read access present"
 
 # 2. StackSet administration, and which call-as this account must use.
 #
@@ -260,11 +271,10 @@ fi
 # `list-stack-sets --call-as SELF` SUCCEEDS from any account (returning an empty
 # list), so probing it proves nothing. `--call-as DELEGATED_ADMIN` does
 # discriminate - it fails unless the account is registered.
-MGMT_ACCOUNT="$(aws organizations describe-organization --profile "$TOOLING_PROFILE" \
-  --region "$REGION" --query 'Organization.MasterAccountId' --output text 2>/dev/null || echo '')"
-
+# MGMT_ACCOUNT came from the gate above, where it is validated, so it can be
+# compared directly rather than defensively.
 _is_mgmt=0
-[ -n "$MGMT_ACCOUNT" ] && [ "$AGENT_SPACE_PRIMARY_ACCOUNT_ID" = "$MGMT_ACCOUNT" ] && _is_mgmt=1
+[ "$AGENT_SPACE_PRIMARY_ACCOUNT_ID" = "$MGMT_ACCOUNT" ] && _is_mgmt=1
 
 _probe_delegated() {
   aws cloudformation list-stack-sets --profile "$TOOLING_PROFILE" --region "$REGION" \
@@ -319,7 +329,7 @@ esac
 # leave nested accounts holding the role with no association - silently narrower
 # coverage that nothing surfaces.
 collect_accounts() {
-  local parent="$1" child out
+  local parent="$1" child out kids
   # Do NOT swallow the error here: a wrong OU id yields
   # ParentNotFoundException, and hiding it leaves the user staring at a bash
   # message about an empty array instead of the actual problem.
@@ -330,10 +340,28 @@ collect_accounts() {
     return 1
   fi
   printf '%s\n' "$out" | tr '\t' '\n'
+
+  # Same reasoning for the recursion, which used to send its error to
+  # /dev/null. That made a permissions failure indistinguishable from "this OU
+  # has no children", so coverage came out NARROWER with nothing reported:
+  # nested accounts simply went missing.
+  if ! kids="$("${ORG[@]}" list-organizational-units-for-parent --parent-id "$parent" \
+                --query 'OrganizationalUnits[].Id' --output text 2>&1)"; then
+    say "  cannot list child OUs of '${parent}':" >&2
+    say "    ${kids}" >&2
+    return 1
+  fi
   while read -r child; do
-    [ -n "$child" ] && collect_accounts "$child"
-  done < <("${ORG[@]}" list-organizational-units-for-parent --parent-id "$parent" \
-             --query 'OrganizationalUnits[].Id' --output text 2>/dev/null | tr '\t' '\n')
+    if [ -n "$child" ]; then
+      collect_accounts "$child" || return 1
+    fi
+  # printf '%s\n', not '%s': without the trailing newline `read` returns EOF on
+  # the final line, so the LAST child OU was silently skipped - the same
+  # narrower-coverage failure this block exists to prevent.
+  done < <(printf '%s\n' "$kids" | tr '\t' '\n')
+  # Explicit: without it the function inherits the status of its last body
+  # command, which for a childless OU is a failed test.
+  return 0
 }
 
 # The OU walk ALWAYS runs. MEMBER_ACCOUNT_IDS, when supplied, is intersected
@@ -359,7 +387,7 @@ for ou in "${OUS[@]}"; do
     *) say "'${ou}' is not an OU or root id." >&2
        say "  Expected a root like 'r-abcd' or an OU like 'ou-abcd-1a2b3c4d'." >&2
        say "  List them with:" >&2
-       say "    aws organizations list-roots --profile ${TOOLING_PROFILE}" >&2
+       say "    aws organizations list-roots --profile ${TOOLING_PROFILE}" >&2  # discovery aid
        say "    aws organizations list-organizational-units-for-parent \\" >&2
        say "      --parent-id <root-id> --profile ${TOOLING_PROFILE}" >&2
        exit 1 ;;

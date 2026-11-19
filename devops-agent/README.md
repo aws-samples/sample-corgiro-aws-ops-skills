@@ -176,7 +176,7 @@ One account holds all three capabilities the deployment needs:
 | # | Capability | Why |
 |---|---|---|
 | 1 | CloudFormation StackSets delegated administrator, or the management account | deploy the member role across the OU. The script detects which applies |
-| 2 | Organizations read | derive the member account list |
+| 2 | Organizations read | derive the member account list, and identify the management account |
 | 3 | hosts the Agent Space | the Agent Space stack deploys into it |
 
 Because of (3), the Agent Space primary account is **derived** from the
@@ -351,3 +351,21 @@ account is registered.
 
 Setting `CALL_AS` explicitly skips detection, and is then verified rather than
 trusted: `CALL_AS=SELF` from a non-management account is rejected.
+
+### The Organizations gate probes what the script uses
+
+The pre-flight calls `describe-organization` and keeps the result. It previously
+probed `list-roots` instead - the one Organizations API the script never calls
+anywhere else - while `describe-organization`, whose result it does use, was
+allowed to fail silently behind `|| echo ''`.
+
+That mattered twice. An empty management account id makes `SELF` unreachable
+even when it is correct, and it stops the management account being excluded from
+the association list; with `TARGET_OU_IDS` set to the org root, that creates an
+association which can never reach status `valid`, because service-managed
+StackSets never deploy to the management account.
+
+The two walk APIs are not gated separately, because both now report their own
+failures. `list-organizational-units-for-parent` used to send its error to
+`/dev/null`, which made a permissions failure indistinguishable from "this OU has
+no children" - nested accounts went missing and nothing said so.

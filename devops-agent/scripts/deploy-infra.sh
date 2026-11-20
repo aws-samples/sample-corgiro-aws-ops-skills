@@ -711,7 +711,7 @@ T1_PARAMS=(
 )
 
 if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$CALL_AS" >/dev/null 2>&1; then
-  say "  already exists -> updating it, which also refreshes instances in the OU"
+  say "  already exists -> updating it, then adding any accounts it is missing"
   STACKSET_UPDATED=1
   run "${CFN[@]}" update-stack-set \
     --stack-set-name "$STACKSET_NAME" --template-body "file://${T1}" \
@@ -722,6 +722,34 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
     --regions "$REGION" \
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1" \
     --parameters "${T1_PARAMS[@]}"
+
+  # update-stack-set only touches instances that ALREADY exist. It does not
+  # create them for accounts newly in scope, so widening the scope - dropping a
+  # MEMBER_ACCOUNT_IDS filter, or adding an OU - silently left those accounts
+  # without the role, while template 2 still created their association. That
+  # association then sits at pending-confirmation forever, naming a role that
+  # was never deployed.
+  #
+  # So diff what is in scope against what has an instance, and create the rest.
+  # The diff itself is read-only, so it runs in DRY mode too - a plan that stays
+  # silent about a missing account is how this went unnoticed in the first place.
+  _have="$("${CFN[@]}" list-stack-instances --stack-set-name "$STACKSET_NAME" \
+      --call-as "$CALL_AS" --query 'Summaries[].Account' --output text 2>/dev/null | tr '\t' '\n')"
+  _missing=""
+  for _a in $(printf '%s\n' "$MEMBER_ACCOUNT_IDS" | tr ',' ' ') "$AGENT_SPACE_PRIMARY_ACCOUNT_ID"; do
+    [ -n "$_a" ] || continue
+    printf '%s\n' "$_have" | grep -qx "$_a" || _missing="${_missing}${_missing:+,}${_a}"
+  done
+  if [ -n "$_missing" ]; then
+    say "  in scope but with no instance yet: ${_missing} -> creating"
+    run "${CFN[@]}" create-stack-instances \
+      --stack-set-name "$STACKSET_NAME" \
+      --deployment-targets "OrganizationalUnitIds=${TARGET_OU_IDS},Accounts=${_missing},AccountFilterType=INTERSECTION" \
+      --regions "$REGION" --call-as "$CALL_AS" \
+      --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
+  else
+    say "  every account in scope already has an instance"
+  fi
 else
   say "  does not exist yet -> creating the StackSet, then its instances"
   run "${CFN[@]}" create-stack-set \

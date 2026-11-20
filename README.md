@@ -114,6 +114,7 @@ deployed with its Agent Space parameters set, so the read-only boundary and its
 explicit deny list are identical on both paths.
 
 Full instructions, prerequisites and trade-offs: **[devops-agent/README.md](devops-agent/README.md)**.
+Why it is built that way: **[devops-agent/DESIGN.md](devops-agent/DESIGN.md)**.
 
 ## Install
 
@@ -187,6 +188,7 @@ skills/
 
 devops-agent/                             ← AWS DevOps Agent target (optional)
 ├── README.md                             ← setup, prerequisites, trade-offs
+├── DESIGN.md                             ← design rationale, for contributors
 ├── cloudformation/
 │   └── agent-space.yaml                  ← Agent Space + account associations
 ├── custom-agent/

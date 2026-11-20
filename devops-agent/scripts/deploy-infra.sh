@@ -395,19 +395,39 @@ fi
 _this_space="$("${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" \
   --query "Stacks[0].Outputs[?OutputKey=='AgentSpaceId'].OutputValue" \
   --output text 2>/dev/null || echo '')"
-_named_space="$(aws devops-agent list-agent-spaces --profile "$TOOLING_PROFILE" \
-  --region "$REGION" --output json 2>/dev/null |
-  N="$AGENT_SPACE_NAME" python3 -c '
+# The same call answers a second, more basic question for free: can this region
+# host an Agent Space at all? It used to be wrapped in 2>/dev/null, a python
+# try/except and `|| echo ''` - three layers that turned "the service has no
+# endpoint in this region" into "no space has that name", so the check passed
+# and the deploy proceeded.
+#
+# That failure mode is the worst shape available here. IAM is global, so
+# template 1 succeeds and puts the member role in every account in the OU;
+# template 2 then dies with "Unrecognized resource types", leaving an org-wide
+# role deployment with nothing able to use it.
+if ! _spaces="$(aws devops-agent list-agent-spaces --profile "$TOOLING_PROFILE" \
+                 --region "$REGION" --output json 2>&1)"; then
+  say "  [FAIL] Agent Space     cannot query Agent Spaces in ${REGION}:" >&2
+  say "         ${_spaces}" >&2
+  say "" >&2
+  say "         An endpoint connection error means AWS DevOps Agent is not" >&2
+  say "         available in this region. Confirm with:" >&2
+  say "           aws cloudformation list-types --region ${REGION} \\" >&2
+  say "             --visibility PUBLIC --filters TypeNamePrefix=AWS::DevOpsAgent" >&2
+  say "         An empty list means this region cannot host an Agent Space." >&2
+  say "" >&2
+  say "         Stopping before template 1, which WOULD have succeeded - IAM is" >&2
+  say "         global - and left the member role deployed across the OU with no" >&2
+  say "         Agent Space able to assume it." >&2
+  exit 1
+fi
+_named_space="$(N="$AGENT_SPACE_NAME" python3 -c '
 import sys, json, os
 n = os.environ["N"]
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-for s in d.get("agentSpaces") or []:
+for s in json.load(sys.stdin).get("agentSpaces") or []:
     if s.get("name") == n:
         print(s.get("agentSpaceId") or ""); break
-' || echo '')"
+' <<< "$_spaces")"
 
 if [ -n "$_named_space" ] && [ "$_named_space" != "${_this_space}" ]; then
   say "  [FAIL] Agent Space     '${AGENT_SPACE_NAME}' already exists as" >&2

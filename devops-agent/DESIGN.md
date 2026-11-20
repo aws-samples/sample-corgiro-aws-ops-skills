@@ -224,6 +224,20 @@ immediately by `create-stack-instances` returns `OperationInProgressException`,
 so the wait is a reusable function called between operations rather than once at
 the end.
 
+The script generates its own `--operation-id` rather than reading one back. That
+lets it poll the operation it started, instead of whatever `--max-results 1`
+reports as newest, which could be an auto-deployment or someone in the console.
+AWS also treats the id as an idempotency token, so a retry with the same id does
+not double-apply.
+
+Checking N member accounts for a pre-existing role is impossible - the member
+role trusts only `aidevops.amazonaws.com`, so nothing can assume into them to
+look. So there is deliberately no role-name collision pre-flight. AWS already
+reports per account, and the script's job is to surface that: on `FAILED` or
+`STOPPED` it prints each account's status and reason, and on timeout it exits
+non-zero rather than reporting success, which would have let template 2 create
+associations for roles that may not exist.
+
 **`update-stack-set` only touches instances that already exist.** It does not
 create them for accounts newly in scope, so widening the scope needs an explicit
 `create-stack-instances` for the difference. The script diffs in-scope accounts
@@ -259,6 +273,5 @@ description validates cleanly and then fails at create time.
 
 | Gap | Note |
 |---|---|
-| No `ROLE_NAME` collision pre-flight | upstream `setup-corgiro` has a dedicated step for it. Only the Tooling Account is checkable, which is also the account most likely to already hold `CorgiroReadOnlyRole` |
 | No automated tests | and the bug history above argues they need an apply mode, not just dry runs |
 | Triggers not handled | `Condition` and `Action` are create-only, so there is no update path for a schedule. `create-trigger` always creates, and re-running would stack duplicates. Handling it properly means listing and deleting first. The shape is documented in a comment in `deploy-assets.sh` |

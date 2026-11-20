@@ -100,27 +100,77 @@ step() { printf '\n--- %s ---\n' "$*"; }
 # applies for real, which reads as though the confirmation were confirming the
 # dry run itself.
 # A StackSet runs ONE operation at a time: starting a second while the first is
-# in flight gets OperationInProgressException. The update path now performs two
-# operations - update-stack-set, then create-stack-instances for accounts that
-# had none - so the wait has to be callable between them, not just once at the
-# end.
-wait_stackset_op() {
+# in flight gets OperationInProgressException. The update path performs two -
+# update-stack-set, then create-stack-instances for accounts that had none - so
+# the wait has to be callable between them, not just once at the end.
+#
+# We generate the operation id rather than reading it back. It lets us poll OUR
+# operation instead of whatever `--max-results 1` says is newest, which could be
+# an auto-deployment or someone working in the console. AWS also treats it as an
+# idempotency token, so a retry with the same id will not double-apply.
+new_op_id() { printf 'corgiro-%s-%s' "$(date -u +%Y%m%d%H%M%S)" "$$"; }
+
+wait_stackset_op() {   # wait_stackset_op OPERATION_ID
   [ "$DRY" -eq 1 ] && return 0
-  say "  waiting for the StackSet operation to finish..."
-  local _ OP ST
-  for _ in $(seq 1 60); do
-    OP="$("${CFN[@]}" list-stack-set-operations --stack-set-name "$STACKSET_NAME" \
-           --call-as "$CALL_AS" --max-results 1 \
-           --query 'Summaries[0].{Id:OperationId,Status:Status}' --output json)"
-    ST="$(python3 -c "import json,sys;print(json.load(sys.stdin)['Status'])" <<< "$OP")"
-    say "    ${ST}"
+  local _op="$1" _i ST _unavailable=0
+  [ -n "$_op" ] || { say "  internal: wait_stackset_op needs an operation id" >&2; exit 1; }
+  say "  waiting for StackSet operation ${_op}..."
+  for _i in $(seq 1 120); do
+    ST="$("${CFN[@]}" describe-stack-set-operation --stack-set-name "$STACKSET_NAME" \
+           --call-as "$CALL_AS" --operation-id "$_op" \
+           --query 'StackSetOperation.Status' --output text 2>/dev/null || echo '')"
     case "$ST" in
-      SUCCEEDED)      return 0 ;;
-      FAILED|STOPPED) say "  StackSet operation ${ST}; stopping." >&2; exit 1 ;;
+      SUCCEEDED) say "    SUCCEEDED"; return 0 ;;
+      FAILED|STOPPED)
+        say "    ${ST}"
+        say "" >&2
+        say "  StackSet operation ${ST}. Per-account detail:" >&2
+        "${CFN[@]}" list-stack-set-operation-results --stack-set-name "$STACKSET_NAME" \
+          --call-as "$CALL_AS" --operation-id "$_op" --output json 2>/dev/null |
+        python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for r in d.get("Summaries") or []:
+    acct   = r.get("Account") or "?"
+    st     = r.get("Status") or "?"
+    reason = (r.get("StatusReason") or "-").replace(chr(10), " ")
+    print("    {:14} {:10} {}".format(acct, st, reason))
+' >&2
+        say "" >&2
+        say "  Template 2 was not run, so no associations were created. Accounts" >&2
+        say "  that succeeded keep the role; re-running is safe once the cause is" >&2
+        say "  fixed - CANCELLED accounts were simply never attempted, because the" >&2
+        say "  script sets FailureToleranceCount=0." >&2
+        exit 1 ;;
+      "")
+        # Distinguish a transient API error from an operation that does not
+        # exist. Retrying a typo, or a StackSet deleted mid-run, for the full
+        # 30 minutes is useless; four consecutive failures is a minute.
+        _unavailable=$((_unavailable + 1))
+        say "    (status unavailable, attempt ${_unavailable} of 4)"
+        if [ "$_unavailable" -ge 4 ]; then
+          say "" >&2
+          say "  Cannot read operation ${_op} on StackSet ${STACKSET_NAME}." >&2
+          say "  Either it does not exist, or the StackSet was removed while this" >&2
+          say "  was running. Nothing further was attempted." >&2
+          exit 1
+        fi ;;
+      *)  _unavailable=0; say "    ${ST}" ;;
     esac
     sleep 15
   done
-  return 0
+  # Never report success on a timeout: the caller would go on to create
+  # associations for roles that may not exist yet.
+  say "" >&2
+  say "  Timed out after 30 minutes waiting for operation ${_op}." >&2
+  say "  It may still be running. Check before re-running:" >&2
+  say "    aws cloudformation describe-stack-set-operation \\" >&2
+  say "      --stack-set-name ${STACKSET_NAME} --call-as ${CALL_AS} \\" >&2
+  say "      --operation-id ${_op}" >&2
+  exit 1
 }
 
 mode_label() {
@@ -737,7 +787,8 @@ T1_PARAMS=(
 if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$CALL_AS" >/dev/null 2>&1; then
   say "  already exists -> updating it, then adding any accounts it is missing"
   STACKSET_UPDATED=1
-  run "${CFN[@]}" update-stack-set \
+  OP_ID="$(new_op_id)"
+  run "${CFN[@]}" update-stack-set --operation-id "$OP_ID" \
     --stack-set-name "$STACKSET_NAME" --template-body "file://${T1}" \
     --capabilities CAPABILITY_NAMED_IAM \
     --auto-deployment "Enabled=true,RetainStacksOnAccountRemoval=false" \
@@ -746,7 +797,7 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
     --regions "$REGION" \
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1" \
     --parameters "${T1_PARAMS[@]}"
-  wait_stackset_op
+  wait_stackset_op "$OP_ID"
 
   # update-stack-set only touches instances that ALREADY exist. It does not
   # create them for accounts newly in scope, so widening the scope - dropping a
@@ -767,13 +818,16 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
   done
   if [ -n "$_missing" ]; then
     say "  in scope but with no instance yet: ${_missing} -> creating"
-    run "${CFN[@]}" create-stack-instances \
+    OP_ID="$(new_op_id)"
+    run "${CFN[@]}" create-stack-instances --operation-id "$OP_ID" \
       --stack-set-name "$STACKSET_NAME" \
       --deployment-targets "OrganizationalUnitIds=${TARGET_OU_IDS},Accounts=${_missing},AccountFilterType=INTERSECTION" \
       --regions "$REGION" --call-as "$CALL_AS" \
       --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
+    wait_stackset_op "$OP_ID"
   else
     say "  every account in scope already has an instance"
+    OP_ID=""
   fi
 else
   say "  does not exist yet -> creating the StackSet, then its instances"
@@ -784,14 +838,15 @@ else
     --auto-deployment "Enabled=true,RetainStacksOnAccountRemoval=false" \
     --call-as "$CALL_AS" \
     --parameters "${T1_PARAMS[@]}"
-  run "${CFN[@]}" create-stack-instances \
+  OP_ID="$(new_op_id)"
+  run "${CFN[@]}" create-stack-instances --operation-id "$OP_ID" \
     --stack-set-name "$STACKSET_NAME" \
     --deployment-targets "$DEPLOY_TARGETS" \
     --regions "$REGION" --call-as "$CALL_AS" \
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
 fi
 
-wait_stackset_op
+if [ -n "${OP_ID:-}" ]; then wait_stackset_op "$OP_ID"; fi
 
 if [ "$DRY" -eq 0 ]; then
   say "  per-account result:"

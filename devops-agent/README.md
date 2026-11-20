@@ -299,6 +299,20 @@ is in flight returns `OperationInProgressException`. The script waits between
 its own operations; if you run it concurrently with a console operation on the
 same StackSet, one of them will fail.
 
+**A failed StackSet operation reports per account.** The script prints the
+account, status and AWS reason for each, then stops before template 2, so no
+associations are created for roles that do not exist:
+
+```
+  StackSet operation FAILED. Per-account detail:
+    <account-a>    FAILED     A policy called ...-DataPlaneDeny already exists.
+    <account-b>    CANCELLED  Cancelled since failure tolerance has exceeded
+```
+
+`CANCELLED` accounts were never attempted, because the script sets
+`FailureToleranceCount=0`. Accounts that succeeded keep the role, and re-running
+is safe once the cause is fixed.
+
 **`update-stack-set` does not add accounts.** It only touches instances that
 already exist. Widening the scope - dropping a `MEMBER_ACCOUNT_IDS` filter, or
 adding an OU - therefore needs `create-stack-instances` as well, which the

@@ -99,6 +99,30 @@ step() { printf '\n--- %s ---\n' "$*"; }
 # the mode is genuinely undecided. Saying "DRY RUN" there was wrong: answering y
 # applies for real, which reads as though the confirmation were confirming the
 # dry run itself.
+# A StackSet runs ONE operation at a time: starting a second while the first is
+# in flight gets OperationInProgressException. The update path now performs two
+# operations - update-stack-set, then create-stack-instances for accounts that
+# had none - so the wait has to be callable between them, not just once at the
+# end.
+wait_stackset_op() {
+  [ "$DRY" -eq 1 ] && return 0
+  say "  waiting for the StackSet operation to finish..."
+  local _ OP ST
+  for _ in $(seq 1 60); do
+    OP="$("${CFN[@]}" list-stack-set-operations --stack-set-name "$STACKSET_NAME" \
+           --call-as "$CALL_AS" --max-results 1 \
+           --query 'Summaries[0].{Id:OperationId,Status:Status}' --output json)"
+    ST="$(python3 -c "import json,sys;print(json.load(sys.stdin)['Status'])" <<< "$OP")"
+    say "    ${ST}"
+    case "$ST" in
+      SUCCEEDED)      return 0 ;;
+      FAILED|STOPPED) say "  StackSet operation ${ST}; stopping." >&2; exit 1 ;;
+    esac
+    sleep 15
+  done
+  return 0
+}
+
 mode_label() {
   if [ "$DRY" -eq 0 ]; then
     printf 'APPLY'
@@ -722,6 +746,7 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
     --regions "$REGION" \
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1" \
     --parameters "${T1_PARAMS[@]}"
+  wait_stackset_op
 
   # update-stack-set only touches instances that ALREADY exist. It does not
   # create them for accounts newly in scope, so widening the scope - dropping a
@@ -766,17 +791,9 @@ else
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
 fi
 
+wait_stackset_op
+
 if [ "$DRY" -eq 0 ]; then
-  say "  waiting for the StackSet operation to finish..."
-  for _ in $(seq 1 60); do
-    OP="$("${CFN[@]}" list-stack-set-operations --stack-set-name "$STACKSET_NAME" \
-           --call-as "$CALL_AS" --max-results 1 \
-           --query 'Summaries[0].{Id:OperationId,Status:Status}' --output json)"
-    ST="$(python3 -c "import json,sys;print(json.load(sys.stdin)['Status'])" <<< "$OP")"
-    say "    ${ST}"
-    case "$ST" in SUCCEEDED) break ;; FAILED|STOPPED) say "  StackSet operation ${ST}; stopping." >&2; exit 1 ;; esac
-    sleep 15
-  done
   say "  per-account result:"
   "${CFN[@]}" list-stack-instances --stack-set-name "$STACKSET_NAME" --call-as "$CALL_AS" --output json |
   python3 -c "

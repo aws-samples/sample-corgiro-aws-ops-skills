@@ -109,7 +109,7 @@ say " Region      : ${REGION}   Profile: ${PROFILE}"
 say " Skill       : ${SKILL_NAME}  <- ${SKILL_URL}"
 say " Custom agent: ${AGENT_NAME}  prompt: $(basename "$PROMPT_FILE") ($(wc -c < "$PROMPT_FILE" | tr -d ' ') chars)"
 say " Tools       : ${TOOLS}"
-say " Mode        : $([ "$DRY" -eq 1 ] && echo 'DRY RUN' || echo APPLY)"
+say " Mode        : $(mode_label)"
 say "=============================================================="
 common_confirm
 say

@@ -128,6 +128,20 @@ common_init_dry() {
   return 0
 }
 
+# The banner prints BEFORE the apply prompt, so when that prompt is still coming
+# the mode is genuinely undecided. Saying "DRY RUN" there was wrong: answering y
+# applies for real, which reads as though the confirmation were confirming the
+# dry run itself.
+mode_label() {
+  if [ "$DRY" -eq 0 ]; then
+    printf 'APPLY'
+  elif [ "$INTERACTIVE" -eq 1 ] && [ -z "${CONFIRM:-}" ]; then
+    printf 'decided by the prompt below (DRY RUN if you decline)'
+  else
+    printf 'DRY RUN'
+  fi
+}
+
 common_confirm() {
   if [ "$DRY" -eq 1 ] && [ "$INTERACTIVE" -eq 1 ] && [ -z "${CONFIRM:-}" ]; then
     local _apply=""

@@ -95,6 +95,21 @@ export AWS_PAGER=""
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n--- %s ---\n' "$*"; }
 
+# The banner prints BEFORE the apply prompt, so when that prompt is still coming
+# the mode is genuinely undecided. Saying "DRY RUN" there was wrong: answering y
+# applies for real, which reads as though the confirmation were confirming the
+# dry run itself.
+mode_label() {
+  if [ "$DRY" -eq 0 ]; then
+    printf 'APPLY'
+  elif [ "$INTERACTIVE" -eq 1 ] && [ -z "${CONFIRM:-}" ]; then
+    printf 'decided by the prompt below (DRY RUN if you decline)'
+  else
+    printf 'DRY RUN'
+  fi
+}
+
+
 # One convention for every boolean input: yes or no, any case, with y/n accepted
 # as the short form the [y/N] prompts take. Nothing else - 1/0, true/false and
 # on/off are rejected rather than guessed at.
@@ -668,7 +683,7 @@ if [ -n "$AGENT_SPACE_ARN" ]; then
 else
   say " Role trust scope   : any Agent Space in this account and region (recommended)"
 fi
-say " Mode               : $([ "$DRY" -eq 1 ] && echo 'DRY RUN' || echo APPLY)"
+say " Mode               : $(mode_label)"
 say "=============================================================="
 
 # Ask once, here, where the plan is already on screen. The environment still

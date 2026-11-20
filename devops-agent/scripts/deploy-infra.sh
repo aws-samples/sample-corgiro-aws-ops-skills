@@ -290,6 +290,28 @@ ask TARGET_OU_IDS                  "Target OU or root IDs (comma-separated)"
 # breaks when the space is recreated where ArnLike on agentspace/* does not.
 PIN_AGENT_SPACE="${PIN_AGENT_SPACE:-n}"
 
+# How many accounts the StackSet deploys to at once.
+#
+# Sequential deployment was a consequence of FailureToleranceCount=0, NOT of
+# MaxConcurrentCount. Under the default ConcurrencyMode=STRICT_FAILURE_TOLERANCE
+# the actual concurrency is min(MaxConcurrentCount, FailureToleranceCount + 1),
+# so a tolerance of 0 pins it to 1 whatever MaxConcurrentCount says - the old
+# MaxConcurrentCount=1 was redundant.
+#
+# SOFT_FAILURE_TOLERANCE decouples the two: concurrency stays at
+# MaxConcurrentCount while FailureToleranceCount=0 still stops the operation on
+# the FIRST failure. Fast and still fail-fast.
+#
+# The cost: with N in flight, up to N accounts are attempted before the stop,
+# rather than exactly one. For a read-only role that is acceptable - each
+# account independently succeeds or rolls back, so the end state stays coherent,
+# just with more accounts touched. Lower it to 1 to restore the old behaviour.
+MAX_CONCURRENT="${MAX_CONCURRENT:-10}"
+case "$MAX_CONCURRENT" in
+  ''|*[!0-9]*|0) printf '%s\n' "MAX_CONCURRENT must be a positive integer, got '${MAX_CONCURRENT}'." >&2; exit 1 ;;
+esac
+OP_PREFS="FailureToleranceCount=0,MaxConcurrentCount=${MAX_CONCURRENT},ConcurrencyMode=SOFT_FAILURE_TOLERANCE"
+
 STACKSET_NAME="${STACKSET_NAME:-corgiro-readonly-devops-agent}"
 STACK_NAME="${STACK_NAME:-corgiro-agent-space}"
 ROLE_NAME="${ROLE_NAME:-CorgiroReadOnlyRole-DevOpsAgent}"
@@ -757,6 +779,7 @@ if [ -n "$AGENT_SPACE_ARN" ]; then
 else
   say " Role trust scope   : any Agent Space in this account and region (recommended)"
 fi
+say " Concurrency        : ${MAX_CONCURRENT} account(s) at a time, stopping on the first failure"
 say " Mode               : $(mode_label)"
 say "=============================================================="
 
@@ -795,7 +818,7 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
     --call-as "$CALL_AS" \
     --deployment-targets "$DEPLOY_TARGETS" \
     --regions "$REGION" \
-    --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1" \
+    --operation-preferences "$OP_PREFS" \
     --parameters "${T1_PARAMS[@]}"
   wait_stackset_op "$OP_ID"
 
@@ -823,7 +846,7 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
       --stack-set-name "$STACKSET_NAME" \
       --deployment-targets "OrganizationalUnitIds=${TARGET_OU_IDS},Accounts=${_missing},AccountFilterType=INTERSECTION" \
       --regions "$REGION" --call-as "$CALL_AS" \
-      --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
+      --operation-preferences "$OP_PREFS"
     wait_stackset_op "$OP_ID"
   else
     say "  every account in scope already has an instance"
@@ -843,7 +866,7 @@ else
     --stack-set-name "$STACKSET_NAME" \
     --deployment-targets "$DEPLOY_TARGETS" \
     --regions "$REGION" --call-as "$CALL_AS" \
-    --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1"
+    --operation-preferences "$OP_PREFS"
 fi
 
 if [ -n "${OP_ID:-}" ]; then wait_stackset_op "$OP_ID"; fi

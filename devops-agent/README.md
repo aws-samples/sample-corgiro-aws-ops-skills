@@ -232,6 +232,7 @@ one.
 | `ROLE_NAME` | `CorgiroReadOnlyRole-DevOpsAgent` | - | `CorgiroReadOnlyRole-DevOpsAgent` |
 | `AGENT_NAME` | - | `corgiro-agent` | - |
 | `PIN_AGENT_SPACE` | `no`; `yes` on a second run narrows the role trust | - | - |
+| `MAX_CONCURRENT` | `10` accounts at a time | - | - |
 | `LOOKBACK_MINUTES` | - | - | `60` |
 | `CONFIRM` | `yes` to apply | `yes` to apply | n/a, read-only |
 | `NO_PROMPT` | `yes` forces the non-interactive path | same | n/a, no prompts |
@@ -293,6 +294,12 @@ aws cloudformation delete-stack-set --stack-set-name <stackset> \
 ## Operating notes
 
 Things that cost a failed deployment to discover.
+
+**Deployment is concurrent, but stops on the first failure.** `MAX_CONCURRENT`
+accounts are processed at once, defaulting to 10. A failure still halts the
+operation, so remaining accounts read `CANCELLED` - but up to `MAX_CONCURRENT`
+will have been attempted rather than exactly one. Set `MAX_CONCURRENT=1` for
+strictly sequential deployment.
 
 **A StackSet runs one operation at a time.** Starting a second while the first
 is in flight returns `OperationInProgressException`. The script waits between

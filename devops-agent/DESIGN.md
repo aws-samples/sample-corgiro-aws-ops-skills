@@ -246,6 +246,20 @@ against accounts holding an instance and creates the remainder, with the same
 required for correctness, because bare OU targeting would re-widen a deployment
 that `MEMBER_ACCOUNT_IDS` had deliberately narrowed.
 
+**Sequential deployment was caused by `FailureToleranceCount=0`, not by
+`MaxConcurrentCount`.** Under the default `ConcurrencyMode=STRICT_FAILURE_TOLERANCE`
+the actual concurrency is `min(MaxConcurrentCount, FailureToleranceCount + 1)`,
+so a tolerance of zero pins it to one account at a time whatever
+`MaxConcurrentCount` says - the original `MaxConcurrentCount=1` was redundant.
+A measured CREATE operation took 238 seconds, which sequential execution
+multiplies by the account count.
+
+`SOFT_FAILURE_TOLERANCE` decouples them: concurrency stays at
+`MaxConcurrentCount` while `FailureToleranceCount=0` still stops the operation
+on the first failure. The cost is that up to `MAX_CONCURRENT` accounts are
+attempted before the stop rather than exactly one, which is acceptable for a
+read-only role because each account independently succeeds or rolls back.
+
 **AWS CLI v2 pipes output through a pager.** `create-stack-instances` printing
 `{"OperationId": "..."}` blocked the script on `less`, which looks exactly like
 a hang. All scripts `export AWS_PAGER=""`.

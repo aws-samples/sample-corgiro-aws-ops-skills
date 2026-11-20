@@ -14,6 +14,11 @@
 #
 set -euo pipefail
 
+# AWS CLI v2 pipes output through a pager (less) by default, which BLOCKS a
+# non-interactive script mid-deployment on an innocuous {"OperationId": "..."}
+# and looks for all the world like the script has hung or opened an editor.
+export AWS_PAGER=""
+
 # Aligned with the other scripts: TOOLING_PROFILE, with PROFILE as an alias.
 TOOLING_PROFILE="${TOOLING_PROFILE:-${PROFILE:-}}"
 : "${TOOLING_PROFILE:?set TOOLING_PROFILE (a profile for the Tooling Account)}"

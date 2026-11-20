@@ -1,3 +1,7 @@
+# AWS CLI v2 pipes output through a pager (less) by default, which BLOCKS a
+# non-interactive script mid-deployment on an innocuous {"OperationId": "..."}
+# and looks for all the world like the script has hung or opened an editor.
+export AWS_PAGER=""
 # Shared helpers for the Corgiro DevOps Agent scripts. Sourced, not executed.
 #
 # Lives here because duplicating these bit us twice: a secret leaked from two

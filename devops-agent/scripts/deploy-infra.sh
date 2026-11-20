@@ -35,6 +35,11 @@
 #
 set -euo pipefail
 
+# AWS CLI v2 pipes output through a pager (less) by default, which BLOCKS a
+# non-interactive script mid-deployment on an innocuous {"OperationId": "..."}
+# and looks for all the world like the script has hung or opened an editor.
+export AWS_PAGER=""
+
 # ---------------------------------------------------------------------- inputs
 #
 # Every value can come from the environment. Anything still unset is PROMPTED
@@ -671,7 +676,7 @@ T1_PARAMS=(
 )
 
 if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$CALL_AS" >/dev/null 2>&1; then
-  say "  exists -> update-stack-set (also refreshes instances in the OU)"
+  say "  already exists -> updating it, which also refreshes instances in the OU"
   STACKSET_UPDATED=1
   run "${CFN[@]}" update-stack-set \
     --stack-set-name "$STACKSET_NAME" --template-body "file://${T1}" \
@@ -683,7 +688,7 @@ if "${CFN[@]}" describe-stack-set --stack-set-name "$STACKSET_NAME" --call-as "$
     --operation-preferences "FailureToleranceCount=0,MaxConcurrentCount=1" \
     --parameters "${T1_PARAMS[@]}"
 else
-  say "  not found -> create-stack-set + create-stack-instances"
+  say "  does not exist yet -> creating the StackSet, then its instances"
   run "${CFN[@]}" create-stack-set \
     --stack-set-name "$STACKSET_NAME" --template-body "file://${T1}" \
     --capabilities CAPABILITY_NAMED_IAM \
@@ -734,7 +739,7 @@ T2_PARAMS=(
 T2_OP=create
 if "${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
   T2_OP=update
-  say "  exists -> update-stack"
+  say "  already exists -> updating it"
   if [ "$DRY" -eq 1 ]; then
     run "${CFN[@]}" update-stack --stack-name "$STACK_NAME" --template-body "file://${T2}" \
       --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --parameters "${T2_PARAMS[@]}"
@@ -746,7 +751,7 @@ if "${CFN[@]}" describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1; then
     [ "$NOOP" -eq 1 ] && T2_OP=noop
   fi
 else
-  say "  not found -> create-stack (with termination protection)"
+  say "  does not exist yet -> creating it, with termination protection"
   # Termination protection is a create-stack parameter, not a template property.
   # Deleting this stack deletes the Agent Space and all of its data.
   run "${CFN[@]}" create-stack \

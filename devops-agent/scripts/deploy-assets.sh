@@ -184,7 +184,7 @@ if [ -n "$SKILL_ID" ]; then
     --metadata "$SKILL_META" >/dev/null
   say "  re-synced and metadata applied"
 else
-  say "  not found -> creating from source URL"
+  say "  no such skill yet -> creating it from the source URL"
   if [ "$DRY" -eq 0 ]; then
     _created="$("${AWSX[@]}" create-asset \
       --agent-space-id "$AGENT_SPACE_ID" --asset-type skill \
@@ -245,7 +245,7 @@ if [ -n "$AGENT_ID" ]; then
     --agent-space-id "$AGENT_SPACE_ID" --asset-id "$AGENT_ID" \
     --metadata "$AGENT_META" --content "$AGENT_CONTENT"
 else
-  say "  not found -> creating"
+  say "  no such custom agent yet -> creating it"
   if [ "$DRY" -eq 0 ]; then
     AGENT_ID="$("${AWSX[@]}" create-asset \
       --agent-space-id "$AGENT_SPACE_ID" --asset-type custom_agent \

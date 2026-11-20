@@ -84,7 +84,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── eol-dates/rds.json
 ├── per-account/<account_id>/<region>/rds-*.json

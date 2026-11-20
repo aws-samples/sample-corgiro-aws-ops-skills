@@ -77,7 +77,7 @@ Update snapshots:
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── accounts.json   (cross-account-role only — org pull)
 ├── coverage.json

@@ -4,7 +4,7 @@ Show the operator which credentials were added, removed, or changed status since
 
 ## 1. Write this run's snapshot
 
-Build the credential set from Step 3 — every access key (`access-keys.json`) and every service-specific credential (`service-specific-credentials.json`) — and write `./<run_id>/credential-snapshot.json`.
+Build the credential set from Step 3 — every access key (`access-keys.json`) and every service-specific credential (`service-specific-credentials.json`) — and write `<run_dir>/credential-snapshot.json`.
 
 Key each credential by `h = first 16 hex chars of sha256("<accountId>:<credentialId>")`, computed in Step 3 from the full ID before masking and carried in the per-account files. The hash gives a stable identity across runs without persisting the full credential ID; the masked ID is for display only (masks collide too often to serve as a key).
 

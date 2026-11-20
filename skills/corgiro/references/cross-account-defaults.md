@@ -20,6 +20,7 @@ Default configuration values used by all Corgiro modes. Operator-specific values
 | `defaultRegions` | `auto` | Regions to probe (`auto` = discover per account) |
 | `fallbackRegions` | `us-east-1, us-west-2, eu-west-1, ap-southeast-1` | Regions probed when `auto` discovery is unavailable (e.g. no payer-level Cost Explorer access) |
 | `rosterFreshnessHours` | `24` | Re-fetch roster if older than this |
+| `runsRoot` | `~/Workspaces/corgiro-runs` | Parent directory for per-run output folders (`<runsRoot>/<run_id>/`). Resolve to an absolute path and create it if missing; never write a run directory to a bare relative `./` path. Override for one run with `--run-dir <path>`. |
 | `rosterStatePath` | `~/.corgiro/state/roster.json` | Cross-session roster snapshot |
 | `coverageStatePath` | `~/.corgiro/state/coverage.json` | Cross-session coverage snapshot |
 

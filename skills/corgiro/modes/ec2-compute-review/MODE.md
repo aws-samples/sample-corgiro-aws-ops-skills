@@ -222,7 +222,7 @@ Write `EC2-Compute-Review-<DATE>.md` and/or `.html` per `output_format`. Then op
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/<region>/
 │   ├── instances.json

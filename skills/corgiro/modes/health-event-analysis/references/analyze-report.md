@@ -59,7 +59,7 @@ Render per the shared [`../../../references/report-format.md`](../../../referenc
 - Event status → badges: open `badge--red`, upcoming `badge--amber`, closed `badge--zinc`.
 - Same sections / order as the Markdown above; long descriptions go in `<details>`.
 
-After writing, open it: `open ./<run_id>/Health-Analysis-<DATE>.html`
+After writing, open it: `open <run_dir>/Health-Analysis-<DATE>.html`
 
 ## Large-Fleet Fallback (>300 events)
 

@@ -73,7 +73,7 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/
 │   ├── global/
@@ -95,7 +95,7 @@ Render the scorecard, domain detail, findings tables, and remediation roadmap pe
 └── Security-Posture-Review-<DATE>.html
 ```
 
-`run_id` = `security-posture-review-<YYYYMMDD>-<HHMMSS>`. Secure the run directory after writing: `chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*` (reports embed account IDs and security configuration).
+`run_id` = `security-posture-review-<YYYYMMDD>-<HHMMSS>`. Secure the run directory after writing: `chmod 700 <run_dir>` and `chmod 600 <run_dir>/*` (reports embed account IDs and security configuration).
 
 ## Error Handling
 

@@ -234,7 +234,7 @@ General rule: an IAM user with a static access key is the last resort. Prefer a 
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── per-account/<account_id>/
 │   ├── account-summary.json
@@ -251,7 +251,7 @@ General rule: an IAM user with a static access key is the last resort. Prefer a 
 └── IAM-Security-Review-<DATE>.html
 ```
 
-Secure the run directory after writing: `chmod 700 ./<run_id>` and `chmod 600 ./<run_id>/*` (reports embed account IDs and IAM configuration). Do not delete prior run directories automatically — the next run's change detection reads their `credential-snapshot.json`.
+Secure the run directory after writing: `chmod 700 <run_dir>` and `chmod 600 <run_dir>/*` (reports embed account IDs and IAM configuration). Do not delete prior run directories automatically — the next run's change detection reads their `credential-snapshot.json`.
 
 ## Error Handling
 

@@ -83,7 +83,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── eol-dates/eks.json
 ├── per-account/<account_id>/<region>/eks-clusters.json

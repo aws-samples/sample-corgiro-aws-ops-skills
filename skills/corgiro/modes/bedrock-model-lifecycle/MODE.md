@@ -158,7 +158,7 @@ Write `Bedrock-Model-Lifecycle-<DATE>.md` and/or `.html` per `output_format`.
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── model-catalogue.json
 ├── at-risk-models.json

@@ -14,8 +14,8 @@ single-file HTML** — no scripts to run, no build step, no network calls.
 2. **One file, no required JS.** All CSS inline. An optional tiny inline `<script>` for client-side table sorting is allowed, but the report must be fully readable without it.
 3. **Fixed branding.** Header logo = the data URI in [`../assets/corgiro-logo.datauri`](../assets/corgiro-logo.datauri) (a 96×96 PNG of the Corgiro mascot). Inline it as the `.brand-logo` `src` via the placeholder-injection step in Rule 9 so the report stays self-contained — do **not** link the `.png` by path, and do **not** transcribe the data URI by hand (it is a single ~16 KB base64 line and will be truncated). Header name = **Corgiro**, tagline = **AWS Cloud Operations Skills**. Never rebrand per mode — the per-report title goes in `.report-title`, not the header name.
 4. **Markdown sibling.** When `output_format` includes `markdown`, also write a `.md` with the same sections/ordering (no styling). This theme governs HTML only.
-5. **Secure the output.** Reports embed account IDs, resource configs, and security findings. Right after writing them, restrict permissions: `chmod 700 ./<run_dir>` and `chmod 600 ./<run_dir>/*`.
-6. **Open it.** After writing the HTML: `open ./<run_dir>/<Report-Name>-<DATE>.html`.
+5. **Secure the output.** Reports embed account IDs, resource configs, and security findings. Right after writing them, restrict permissions: `chmod 700 <run_dir>` and `chmod 600 <run_dir>/*`.
+6. **Open it.** After writing the HTML: `open <run_dir>/<Report-Name>-<DATE>.html`.
 7. **Retention is the operator's call.** Never auto-delete reports. If the operator asks, offer to remove old run directories — do not remove them automatically.
 8. **Escape untrusted resource data (XSS).** Every string derived from AWS API output (resource names, tags, EKS Group/Team/Application tags, ARNs, health-event descriptions, any metadata) is attacker-controlled. Because the report is agent-authored HTML opened from `file://`, an unescaped `<script>` or `<img onerror=...>` in a value executes with local-file privileges and can read sibling reports in the run directory. Before inserting any resource-derived string into the HTML you MUST HTML-entity-escape it: `&` to `&amp;` (do this first), `<` to `&lt;`, `>` to `&gt;`, `"` to `&quot;`, `'` to `&#39;`. This applies in every context: table cells, `<details>`/`<summary>`, attributes, and list items. Code-block or literal wrapping does NOT escape HTML and is not a substitute. Truncate to 256 raw characters first, then escape, then wrap (see SKILL.md Prompt Injection Defense rule 3). Trusted repo assets (`report-theme.css`, `corgiro-logo.datauri`) are inlined verbatim and exempt; the optional inline sort `<script>` must be static and must never contain resource data.
 9. **Inline assets by injection, not transcription.** The logo data URI (a single ~16 KB base64 line) and the CSS are too large to copy through the model reliably — hand-transcription truncates or corrupts them, producing a broken/missing logo. Instead, author the HTML with placeholder tokens and splice the real files in with a script. Use placeholders `/*__CORGIRO_CSS__*/` inside the `<style>` block and `__CORGIRO_LOGO__` as the `.brand-logo` `src`, then run (resolve `<assets>` to the skill's `assets/` directory):
@@ -46,7 +46,25 @@ single-file HTML** — no scripts to run, no build step, no network calls.
 
 - `run_id` = `<mode>-<YYYYMMDD>-<HHMMSS>`, where `<mode>` is the mode's directory name — e.g. `rds-eol-analysis-20260615-080500`.
 - `<DATE>` = `YYYY-MM-DD` (the report / analysis date).
-- Run directory = `./<run_id>/` (the `run_id` already carries the mode prefix — do not add another); report file = `<Topic>-<DATE>.{md,html}`.
+- Run directory = `<runsRoot>/<run_id>/`, where `runsRoot` defaults to
+  `~/Workspaces/corgiro-runs` (see
+  [`cross-account-defaults.md`](cross-account-defaults.md)) and `--run-dir <path>`
+  overrides it for one run. The `run_id` already carries the mode prefix — do not
+  add another. Report file = `<Topic>-<DATE>.{md,html}`.
+
+  Two placeholders appear throughout these references and mean different things:
+  `<runsRoot>` is the parent directory holding every run, and `<run_dir>` is one
+  run's own directory, `<runsRoot>/<run_id>/`. Steps that write artifacts use
+  `<run_dir>`.
+
+  Resolve `runsRoot` to an absolute path, expanding `~`, and create it if missing.
+  **Never write a run directory to a bare relative `./` path.** Rule 5's
+  `chmod 700` restricts *who on this machine* can read the output; it does
+  nothing about *where the output landed*. A run directory created in the
+  operator's working directory can be inside a git repo, where `git add -A`
+  sweeps it up, or inside a synced folder, which copies account IDs, resource
+  configuration and security findings to a cloud provider. Both are outside what
+  file permissions can protect against.
 
 ## Document skeleton
 

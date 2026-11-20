@@ -122,7 +122,7 @@ Render per the shared [`../../references/report-format.md`](../../references/rep
 ## Output
 
 ```
-./<run_id>/
+<runsRoot>/<run_id>/
 ├── scope.json
 ├── eol-dates/elasticache.json
 ├── per-account/111111111111/us-east-1/elasticache-clusters.json
